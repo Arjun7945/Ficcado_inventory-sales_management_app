@@ -3,7 +3,7 @@
  *
  * GET /api/reconciliation
  * Dedicated API endpoint for Inventory vs. Warehouse Stock Reconciliation.
- * Compares total unassigned main inventory stock against allocated warehouse stock per item+size.
+ * Compares total main inventory stock against allocated warehouse stock per item+size.
  */
 
 import { requireAuth } from '@/lib/auth';
@@ -24,41 +24,59 @@ export async function GET() {
       readAllRows('warehouse'),
     ]);
 
-    const invItems = invRows.slice(1).map((r) => ({
-      itemName: (r[COL_INV.itemName] ?? '').trim(),
-      size:     (r[COL_INV.size]     ?? '').trim(),
-      qty:      parseInt(r[COL_INV.qty] ?? '0', 10) || 0,
-    })).filter((i) => i.itemName);
-
-    const wItems = wRows.slice(1).map((r) => ({
-      itemName: (r[COL_W.itemName] ?? '').trim(),
-      size:     (r[COL_W.size]     ?? '').trim(),
-      qty:      parseInt(r[COL_W.qty] ?? '0', 10) || 0,
-    })).filter((w) => w.itemName);
-
-    // Aggregate warehouse qty by item+size
-    const wMap: Record<string, number> = {};
-    for (const w of wItems) {
-      const key = `${w.itemName.toLowerCase()}:${w.size.toUpperCase()}`;
-      wMap[key] = (wMap[key] || 0) + w.qty;
+    // Parse Main Inventory stock: key -> { itemName, size, qty }
+    const invMap: Record<string, { itemName: string; size: string; qty: number }> = {};
+    for (const r of invRows.slice(1)) {
+      const name = (r[COL_INV.itemName] ?? '').trim();
+      const size = (r[COL_INV.size]     ?? '').trim();
+      const qty  = parseInt(r[COL_INV.qty] ?? '0', 10) || 0;
+      if (name && size) {
+        const normKey = `${name.toLowerCase()}:${size.toUpperCase()}`;
+        if (!invMap[normKey]) {
+          invMap[normKey] = { itemName: name, size: size.toUpperCase(), qty: 0 };
+        }
+        invMap[normKey].qty += qty;
+      }
     }
 
-    // Build reconciliation list
-    const recon = invItems.map((inv) => {
-      const key = `${inv.itemName.toLowerCase()}:${inv.size.toUpperCase()}`;
-      const warehouseQty = wMap[key] || 0;
-      const difference = inv.qty - warehouseQty;
-      const mismatch = warehouseQty > inv.qty; // Warehouse allocated exceeds main inventory total
+    // Parse Warehouse allocations: key -> total allocated qty
+    const wMap: Record<string, { itemName: string; size: string; qty: number }> = {};
+    for (const r of wRows.slice(1)) {
+      const name = (r[COL_W.itemName] ?? '').trim();
+      const size = (r[COL_W.size]     ?? '').trim();
+      const qty  = parseInt(r[COL_W.qty] ?? '0', 10) || 0;
+      if (name && size) {
+        const normKey = `${name.toLowerCase()}:${size.toUpperCase()}`;
+        if (!wMap[normKey]) {
+          wMap[normKey] = { itemName: name, size: size.toUpperCase(), qty: 0 };
+        }
+        wMap[normKey].qty += qty;
+      }
+    }
+
+    // Combine all unique keys from BOTH inventory and warehouse sheets
+    const allKeys = new Set([...Object.keys(invMap), ...Object.keys(wMap)]);
+
+    const recon = Array.from(allKeys).map((normKey) => {
+      const invObj = invMap[normKey];
+      const wObj   = wMap[normKey];
+
+      const itemName = invObj?.itemName || wObj?.itemName || '';
+      const size     = invObj?.size     || wObj?.size     || '';
+      const inventoryTotal = invObj?.qty || 0;
+      const warehouseTotal = wObj?.qty   || 0;
+      const difference     = inventoryTotal - warehouseTotal;
+      const mismatch       = warehouseTotal > inventoryTotal; // Over-allocated beyond main inventory
 
       return {
-        itemName:       inv.itemName,
-        size:           inv.size,
-        inventoryTotal: inv.qty,
-        warehouseTotal: warehouseQty,
+        itemName,
+        size,
+        inventoryTotal,
+        warehouseTotal,
         difference,
         mismatch,
       };
-    });
+    }).sort((a, b) => a.itemName.localeCompare(b.itemName) || a.size.localeCompare(b.size));
 
     const totalTracked    = recon.length;
     const totalReconciled = recon.filter((r) => !r.mismatch).length;

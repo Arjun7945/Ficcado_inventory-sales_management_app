@@ -88,9 +88,9 @@ export default function SalesPage() {
           <h1 className="page-title">Sales</h1>
           <div className="page-subtitle">{filtered.length} of {sales.length} records</div>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowModal(true)}>
+        <Link href="/dashboard/sales/new" className="btn btn-primary">
           + New Sale
-        </button>
+        </Link>
       </div>
 
       {error && <ErrorMessage message={error.message} variant="error" onDismiss={() => setError(null)} />}

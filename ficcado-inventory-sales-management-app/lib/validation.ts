@@ -74,36 +74,35 @@ export type WarehouseInput = z.infer<typeof WarehouseSchema>;
 /** Sales Management */
 export const SalesSchema = z.object({
   customerName:            requiredString('Customer name'),
-  customerPhoneNumber:     phoneNumber,
+  customerPhoneNumber:     z.string().min(1, 'Customer phone number is required'),
   customerAddress:         requiredString('Customer address'),
   totalNumberOfItems:      positiveNumber('Total number of items'),
-  itemNames:               z.array(z.string()).min(1, 'Select at least one item'),
-  sizesChosen:             z.array(z.string()).min(1, 'Select at least one size'),
+  itemNames:               z.union([z.array(z.string()).min(1), z.string().min(1)]),
+  sizesChosen:             z.union([z.array(z.string()).min(1), z.string().min(1)]),
+  items:                   z.array(z.object({
+                             itemName: z.string(),
+                             size: z.string(),
+                             qty: z.coerce.number(),
+                           })).optional(),
   totalAmount:             positiveNumber('Total amount'),
-  paymentStatus:           z.enum(['Paid', 'Not Paid', 'Credit'] as const, 'Select a valid payment status'),
-  modeOfPayment:           z.enum(['Cash', 'UPI', 'Card'] as const, 'Select a valid payment mode'),
-  transactionId:           z.string().optional(),
-  saleStatus:              z.enum(['Purchase Satisfied', 'Return & Refund', 'Replacement Completed & Purchase Satisfied'] as const).default('Purchase Satisfied'),
-  deliveryStatus:          z.enum([
-                             'Packed & Ready for Shipment',
-                             'In Transit',
-                             'Order Delivered Successfully',
-                             'Order Missing',
-                             'Order Failed to Deliver & Returning Back'
-                           ] as const).default('Packed & Ready for Shipment'),
+  paymentStatus:           z.string().default('Paid'),
+  modeOfPayment:           z.string().optional().default('N/A'),
+  transactionId:           z.string().optional().default('N/A'),
+  saleStatus:              z.string().default('Purchase Satisfied'),
+  deliveryStatus:          z.string().default('Packed & Ready for Shipment'),
   deliveryChargeToggle:    z.boolean().default(false),
   deliveryChargeAmount:    z.coerce.number().min(0).default(0),
-  fulfilmentStatus:        z.enum(['Normal', 'Replace-Requested', 'Refund-Requested'] as const).default('Normal'),
+  fulfilmentStatus:        z.string().default('Normal'),
   fulfilmentSource:        requiredString('Fulfilment source'),
 }).refine(
   (data) => {
-    if (data.modeOfPayment !== 'Cash' && !data.transactionId) {
+    if (data.paymentStatus === 'Paid' && data.modeOfPayment !== 'Cash' && data.modeOfPayment !== 'N/A' && !data.transactionId) {
       return false;
     }
     return true;
   },
   {
-    message: 'Transaction ID is required for UPI and Card payments',
+    message: 'Transaction ID is required for digital payments',
     path: ['transactionId'],
   }
 ).refine(

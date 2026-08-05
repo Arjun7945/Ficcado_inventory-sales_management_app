@@ -146,7 +146,8 @@ export async function POST(request: Request) {
     const { valid, data, errors } = validate(SalesSchema, body);
 
     if (!valid) {
-      return Response.json({ error: 'Validation failed', errors }, { status: 400 });
+      const detailMsg = errors ? Object.values(errors).filter(Boolean).join('. ') : 'Validation failed';
+      return Response.json({ error: detailMsg || 'Validation failed', errors }, { status: 400 });
     }
 
     const {
@@ -165,19 +166,34 @@ export async function POST(request: Request) {
     ]);
 
     // Parse items & sizes list
-    const itemNamesArr = Array.isArray(itemNames) ? itemNames : [itemNames];
-    const sizesChosenArr = Array.isArray(sizesChosen) ? sizesChosen : [sizesChosen];
-
-    // Build requested item+size counts (assuming 1 unit per item/size pair in lists)
     const itemSizeRequests: Record<string, { itemName: string; size: string; qty: number }> = {};
-    for (let i = 0; i < itemNamesArr.length; i++) {
-      const itName = itemNamesArr[i].trim();
-      const sz = (sizesChosenArr[i] || sizesChosenArr[0] || 'M').trim();
-      const key = `${itName}:${sz}`;
-      if (!itemSizeRequests[key]) {
-        itemSizeRequests[key] = { itemName: itName, size: sz, qty: 0 };
+
+    if (Array.isArray(body.items) && body.items.length > 0) {
+      for (const item of body.items) {
+        const itName = (item.itemName ?? '').trim();
+        const sz = (item.size ?? 'M').trim();
+        const q = parseInt(item.qty ?? '1', 10) || 1;
+        if (itName && sz) {
+          const key = `${itName}:${sz}`;
+          if (!itemSizeRequests[key]) {
+            itemSizeRequests[key] = { itemName: itName, size: sz, qty: 0 };
+          }
+          itemSizeRequests[key].qty += q;
+        }
       }
-      itemSizeRequests[key].qty += 1;
+    } else {
+      const itemNamesArr = Array.isArray(itemNames) ? itemNames : [itemNames];
+      const sizesChosenArr = Array.isArray(sizesChosen) ? sizesChosen : [sizesChosen];
+
+      for (let i = 0; i < itemNamesArr.length; i++) {
+        const itName = itemNamesArr[i].trim();
+        const sz = (sizesChosenArr[i] || sizesChosenArr[0] || 'M').trim();
+        const key = `${itName}:${sz}`;
+        if (!itemSizeRequests[key]) {
+          itemSizeRequests[key] = { itemName: itName, size: sz, qty: 0 };
+        }
+        itemSizeRequests[key].qty += 1;
+      }
     }
 
     // 1. Validate Inventory Stock
@@ -295,6 +311,9 @@ export async function POST(request: Request) {
 
     // 4. Save Sales row
     const sno = String(salesRows.length);
+    const itemNamesStr = Array.isArray(itemNames) ? itemNames.join(', ') : (itemNames || Array.from(new Set(Object.values(itemSizeRequests).map((i) => i.itemName))).join(', '));
+    const sizesChosenStr = Array.isArray(sizesChosen) ? sizesChosen.join(', ') : (sizesChosen || Object.values(itemSizeRequests).map((i) => i.size).join(', '));
+
     await appendRows('sales', [[
       sno,
       invoiceNumber,
@@ -303,8 +322,8 @@ export async function POST(request: Request) {
       customerPhoneNumber,
       customerAddress,
       String(totalNumberOfItems),
-      itemNamesArr.join(', '),
-      sizesChosenArr.join(', '),
+      itemNamesStr,
+      sizesChosenStr,
       String(totalAmount),
       paymentStatus,
       modeOfPayment,
@@ -322,9 +341,9 @@ export async function POST(request: Request) {
     ]]);
 
     // 5. Enhanced Activity Logging (Section 2.8)
-    const itemsSummary = itemNamesArr.map((it, idx) => `${it} (${sizesChosenArr[idx] || 'M'})`).join(', ');
+    const itemsSummary = Object.values(itemSizeRequests).map((r) => `${r.qty} piece(s) of ${r.itemName} (${r.size})`).join(', ');
     const sourceText = fulfilmentSource === 'Take from Inventory' ? 'unassigned inventory' : `${fulfilmentSource}'s warehouse`;
-    const logMsg = `${admin.name} created sale ${invoiceNumber} — ${totalNumberOfItems} piece(s) of ${itemsSummary}, fulfilled from ${sourceText}.`;
+    const logMsg = `${admin.name} created sale ${invoiceNumber} — ${itemsSummary}, fulfilled from ${sourceText}.`;
 
     await logActivity({
       adminName:  admin.name,

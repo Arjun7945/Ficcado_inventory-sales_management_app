@@ -89,6 +89,14 @@ export function parseApiError(err: unknown): { message: string; hint?: string } 
   if (err && typeof err === 'object') {
     const e = err as Record<string, unknown>;
 
+    // Validation errors map
+    if (e.errors && typeof e.errors === 'object') {
+      const msgs = Object.values(e.errors as Record<string, string>).filter(Boolean);
+      if (msgs.length > 0) {
+        return { message: msgs.join('. ') };
+      }
+    }
+
     // Conflict (version mismatch)
     if (e.status === 409 || e.type === 'conflict') {
       return {
