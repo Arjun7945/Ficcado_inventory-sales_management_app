@@ -317,7 +317,7 @@ export async function POST(request: Request) {
     await appendRows('sales', [[
       sno,
       invoiceNumber,
-      saleStatus ?? 'Purchase Satisfied',
+      saleStatus ?? (paymentStatus === 'Paid' && deliveryStatus === 'Order Delivered Successfully' ? 'Purchase Satisfied & Order Completed' : 'Not Provided / Order Only Placed'),
       customerName,
       customerPhoneNumber,
       customerAddress,

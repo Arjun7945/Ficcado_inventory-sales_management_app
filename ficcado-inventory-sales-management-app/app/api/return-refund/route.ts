@@ -79,7 +79,7 @@ export async function POST(request: Request) {
     await appendRows('return_refund', [[
       sno, invoiceNumber, itemVerificationStatus, refundStatus,
       String(refundAmount), refundCompletedAt ?? '', transactionId ?? '',
-      modeOfRefund, now, admin.name, now, admin.name, '1',
+      modeOfRefund ?? '', '', '', now, admin.name, now, admin.name, '1',
     ]]);
 
     await logActivity({ adminName: admin.name, action: 'created', module: 'Return/Refund Management', moduleKey: 'return_refund', recordId: invoiceNumber });

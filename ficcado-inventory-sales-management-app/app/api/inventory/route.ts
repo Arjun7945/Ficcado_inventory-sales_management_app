@@ -61,10 +61,10 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const { valid, data, errors } = validate(InventorySchema, body);
-    if (!valid) return Response.json({ error: 'Validation failed', errors }, { status: 400 });
+    const validation = validate(InventorySchema, body);
+    if (!validation.valid) return Response.json({ error: validation.errorMessage, errors: validation.errors }, { status: 400 });
 
-    const { itemName, size, totalQuantityAvailable } = data!;
+    const { itemName, size, totalQuantityAvailable } = validation.data!;
 
     const [invRows, itemRows] = await Promise.all([
       readAllRows('inventory'),

@@ -49,10 +49,10 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const { valid, data, errors } = validate(ItemSchema, body);
-    if (!valid) return Response.json({ error: 'Validation failed', errors }, { status: 400 });
+    const validation = validate(ItemSchema, body);
+    if (!validation.valid) return Response.json({ error: validation.errorMessage, errors: validation.errors }, { status: 400 });
 
-    const { itemName, itemType, priceOfItem, availableSizes, currentStatus } = data!;
+    const { itemName, itemType, priceOfItem, availableSizes, currentStatus } = validation.data!;
     const rows = await readAllRows('items');
 
     // Duplicate name check

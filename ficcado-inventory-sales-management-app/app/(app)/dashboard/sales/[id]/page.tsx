@@ -2,13 +2,13 @@
 
 /**
  * app/(app)/dashboard/sales/[id]/page.tsx
+ * Single Sale Order Details & Actions View.
  *
- * Sales detail & update page for an individual invoice (e.g. FIC-215).
- * Part 2 features:
- *  - Replace Requested & Refund Requested action flows with plain confirmation dialogs.
- *  - Order locking (dims inputs and displays direct redirect guidance when locked).
- *  - Delivery Status and Delivery Charge fields.
- *  - Optimistic locking checks.
+ * Features:
+ * - View & update order details (Customer info, Delivery Status, Payment Status).
+ * - "✓ Sale Completed" button action with interactive payment verification modal.
+ * - Replace / Refund request initiation dialogs.
+ * - Enforces Replace/Refund workflow locking.
  */
 
 import React, { useEffect, useState, use } from 'react';
@@ -39,65 +39,69 @@ interface Sale {
   deliveryStatus:       string;
   deliveryChargeToggle: boolean;
   deliveryChargeAmount: number;
-  fulfilmentStatus:     string; // 'Normal' | 'Replace-Requested' | 'Refund-Requested'
+  fulfilmentStatus:     string;
   fulfilmentSource:     string;
 }
 
 export default function SaleDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const resolvedParams = use(params);
-  const invoiceId = resolvedParams.id;
+  const { id: invoiceId } = use(params);
   const router = useRouter();
 
-  const [sale, setSale] = useState<Sale | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [sale, setSale]                   = useState<Sale | null>(null);
+  const [loading, setLoading]             = useState(true);
+  const [saving, setSaving]               = useState(false);
+  const [deleting, setDeleting]           = useState(false);
 
-  // Form state
-  const [customerName, setCustomerName]         = useState('');
-  const [customerPhone, setCustomerPhone]       = useState('');
-  const [customerAddress, setCustomerAddress]   = useState('');
-  const [paymentStatus, setPaymentStatus]       = useState('Paid');
-  const [modeOfPayment, setModeOfPayment]       = useState('UPI');
-  const [transactionId, setTransactionId]       = useState('');
-  const [saleStatus, setSaleStatus]             = useState('Purchase Satisfied');
-  const [deliveryStatus, setDeliveryStatus]     = useState('Packed & Ready for Shipment');
+  const [error, setError]                 = useState<{ message: string; hint?: string; variant?: 'error' | 'warning' | 'conflict' } | null>(null);
+  const [successMsg, setSuccessMsg]       = useState<string | null>(null);
+
+  // Form Edit State
+  const [customerName, setCustomerName]   = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerAddress, setCustomerAddress] = useState('');
+  const [paymentStatus, setPaymentStatus] = useState('Paid');
+  const [modeOfPayment, setModeOfPayment] = useState('Cash');
+  const [transactionId, setTransactionId] = useState('');
+  const [saleStatus, setSaleStatus]       = useState('Not Provided / Order Only Placed');
+  const [deliveryStatus, setDeliveryStatus] = useState('Packed & Ready for Shipment');
   const [deliveryChargeToggle, setDeliveryChargeToggle] = useState(false);
-  const [deliveryChargeAmount, setDeliveryChargeAmount] = useState('');
+  const [deliveryChargeAmount, setDeliveryChargeAmount] = useState('0');
 
-  // Confirmation modal state
+  // Confirmation Modals
   const [confirmAction, setConfirmAction] = useState<'replace' | 'refund' | null>(null);
-  const [requestingAction, setRequestingAction] = useState(false);
 
-  const [error, setError] = useState<{ message: string; hint?: string; variant?: 'error' | 'warning' | 'conflict' | 'success' } | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  // Sale Completion Modal State
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [completionPaymentChoice, setCompletionPaymentChoice] = useState<'paid_now' | 'not_paid'>('paid_now');
+  const [completionModeOfPayment, setCompletionModeOfPayment] = useState('Cash');
+  const [completionTransactionId, setCompletionTransactionId] = useState('');
+  const [completionError, setCompletionError] = useState<string | null>(null);
 
   async function loadSale() {
     setLoading(true);
-    setError(null);
     try {
       const res = await fetch(`/api/sales/${encodeURIComponent(invoiceId)}`);
       const data = await res.json();
-
       if (!res.ok) {
         setError(parseApiError(data));
+        setSale(null);
         return;
       }
 
-      const s: Sale = data.sale;
+      const s = data.sale as Sale;
       setSale(s);
       setCustomerName(s.customerName);
       setCustomerPhone(s.customerPhone);
       setCustomerAddress(s.customerAddress);
-      setPaymentStatus(s.paymentStatus || 'Paid');
-      setModeOfPayment(s.modeOfPayment || 'UPI');
-      setTransactionId(s.transactionId || '');
-      setSaleStatus(s.saleStatus || 'Purchase Satisfied');
+      setPaymentStatus(s.paymentStatus);
+      setModeOfPayment(s.modeOfPayment || 'Cash');
+      setTransactionId(s.transactionId === 'N/A' ? '' : (s.transactionId || ''));
+      setSaleStatus(s.saleStatus || 'Not Provided / Order Only Placed');
       setDeliveryStatus(s.deliveryStatus || 'Packed & Ready for Shipment');
-      setDeliveryChargeToggle(s.deliveryChargeToggle ?? false);
-      setDeliveryChargeAmount(String(s.deliveryChargeAmount ?? 0));
+      setDeliveryChargeToggle(s.deliveryChargeToggle);
+      setDeliveryChargeAmount(String(s.deliveryChargeAmount || 0));
     } catch {
-      setError({ message: "Couldn't load invoice details. Check your internet connection." });
+      setError({ message: `Couldn't load details for invoice ${invoiceId}.` });
     } finally {
       setLoading(false);
     }
@@ -105,37 +109,9 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
 
   useEffect(() => { loadSale(); }, [invoiceId]);
 
-  const isLocked = sale?.fulfilmentStatus !== 'Normal';
+  const isLocked = sale ? sale.fulfilmentStatus !== 'Normal' : false;
 
-  async function handleRequestAction(actionType: 'replace' | 'refund') {
-    setRequestingAction(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/sales/${encodeURIComponent(invoiceId)}`, {
-        method:  'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          requestAction: actionType === 'replace' ? 'replace_requested' : 'refund_requested',
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setError(parseApiError(data));
-        return;
-      }
-
-      setSuccessMsg(data.message);
-      setConfirmAction(null);
-      loadSale();
-    } catch {
-      setError({ message: "Couldn't send request. Check your connection." });
-    } finally {
-      setRequestingAction(false);
-    }
-  }
-
-  async function handleSave(e: React.FormEvent) {
+  async function handleSaveChanges(e: React.FormEvent) {
     e.preventDefault();
     if (!sale) return;
     if (isLocked) {
@@ -151,9 +127,15 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
     setSuccessMsg(null);
 
     if (!customerName.trim()) { setError({ message: 'Customer name is required.' }); return; }
-    if (modeOfPayment !== 'Cash' && !transactionId.trim()) {
-      setError({ message: 'Transaction ID is required for UPI and Card payments.' });
+    if (paymentStatus === 'Paid' && modeOfPayment !== 'Cash' && modeOfPayment !== 'N/A' && !transactionId.trim()) {
+      setError({ message: 'Transaction ID is required for UPI, Card, and Bank Transfer payments.' });
       return;
+    }
+
+    // Auto-sync saleStatus to Purchase Satisfied & Order Completed if paid and delivered
+    let targetSaleStatus = saleStatus;
+    if (paymentStatus === 'Paid' && deliveryStatus === 'Order Delivered Successfully' && (saleStatus === 'Payment Pending' || saleStatus === 'Not Provided / Order Only Placed')) {
+      targetSaleStatus = 'Purchase Satisfied & Order Completed';
     }
 
     setSaving(true);
@@ -167,9 +149,9 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
           customerPhone,
           customerAddress,
           paymentStatus,
-          modeOfPayment,
-          transactionId,
-          saleStatus,
+          modeOfPayment:        paymentStatus === 'Paid' ? modeOfPayment : 'N/A',
+          transactionId:        paymentStatus === 'Paid' ? (transactionId || 'N/A') : 'N/A',
+          saleStatus:           targetSaleStatus,
           deliveryStatus,
           deliveryChargeToggle,
           deliveryChargeAmount: deliveryChargeToggle ? parseFloat(deliveryChargeAmount || '0') : 0,
@@ -193,12 +175,112 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
       }
 
       setSuccessMsg(`Invoice ${invoiceId} updated successfully.`);
-      if (data.version) {
-        setSale((prev) => prev ? { ...prev, version: data.version } : null);
-      }
       loadSale();
     } catch {
       setError({ message: "Couldn't save changes. Check your internet connection." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Handle "Sale Completed" button click
+  function handleOpenSaleCompletedModal() {
+    if (!sale) return;
+    setCompletionError(null);
+
+    if (paymentStatus === 'Paid') {
+      // Payment already confirmed — execute completion immediately
+      executeSaleCompletion({
+        payStatus: 'Paid',
+        payMode:   modeOfPayment,
+        txId:      transactionId,
+      });
+    } else {
+      // Payment not marked paid — open interactive verification modal
+      setCompletionPaymentChoice('paid_now');
+      setCompletionModeOfPayment('Cash');
+      setCompletionTransactionId('');
+      setShowCompleteModal(true);
+    }
+  }
+
+  async function executeSaleCompletion(params: { payStatus: string; payMode: string; txId: string }) {
+    if (!sale) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/sales/${encodeURIComponent(invoiceId)}`, {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          version:              sale.version,
+          customerName,
+          customerPhone,
+          customerAddress,
+          paymentStatus:        params.payStatus,
+          modeOfPayment:        params.payStatus === 'Paid' ? params.payMode : 'N/A',
+          transactionId:        params.payStatus === 'Paid' ? (params.txId || 'N/A') : 'N/A',
+          saleStatus:           'Purchase Satisfied & Order Completed',
+          deliveryStatus:       'Order Delivered Successfully',
+          deliveryChargeToggle,
+          deliveryChargeAmount: deliveryChargeToggle ? parseFloat(deliveryChargeAmount || '0') : 0,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(parseApiError(data));
+        return;
+      }
+
+      setShowCompleteModal(false);
+      setSuccessMsg(`Sale ${invoiceId} marked as Order Delivered Successfully & Purchase Satisfied.`);
+      loadSale();
+    } catch {
+      setError({ message: "Couldn't mark sale as completed." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleConfirmCompletionForm(e: React.FormEvent) {
+    e.preventDefault();
+    setCompletionError(null);
+
+    if (completionPaymentChoice === 'not_paid') {
+      setCompletionError('Orders can only be marked as Sale Completed after payment is received. Please mark the sale as Paid first.');
+      return;
+    }
+
+    if (completionModeOfPayment !== 'Cash' && !completionTransactionId.trim()) {
+      setCompletionError('Transaction ID is required for UPI, Card, and Bank Transfer payments.');
+      return;
+    }
+
+    executeSaleCompletion({
+      payStatus: 'Paid',
+      payMode:   completionModeOfPayment,
+      txId:      completionTransactionId.trim(),
+    });
+  }
+
+  async function handleRequestAction(action: 'replace' | 'refund') {
+    setConfirmAction(null);
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/sales/${encodeURIComponent(invoiceId)}`, {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          requestAction: action === 'replace' ? 'replace_requested' : 'refund_requested',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(parseApiError(data)); return; }
+
+      setSuccessMsg(`Invoice ${invoiceId} moved to ${action === 'replace' ? 'Replacement Management' : 'Return/Refund Management'}.`);
+      loadSale();
+    } catch {
+      setError({ message: "Couldn't submit request action." });
     } finally {
       setSaving(false);
     }
@@ -220,8 +302,10 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
 
   if (loading) return <LoadingGecko size="full" label={`Loading invoice ${invoiceId}…`} />;
 
+  const isCompleted = sale?.saleStatus === 'Purchase Satisfied & Order Completed' || sale?.saleStatus === 'Purchase Satisfied';
+
   return (
-    <div style={{ maxWidth: 800, margin: '0 auto' }}>
+    <div style={{ maxWidth: 840, margin: '0 auto', paddingBottom: 40 }}>
       {/* Page Header */}
       <div className="page-header">
         <div>
@@ -235,13 +319,29 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
                 🔒 Locked ({sale?.fulfilmentStatus})
               </span>
             )}
+            {isCompleted && (
+              <span className="badge badge-success" style={{ fontSize: 12 }}>
+                ✓ Order Completed
+              </span>
+            )}
           </div>
           <div className="page-subtitle">
             Created by {sale?.createdBy} on {sale?.createdAt ? new Date(sale.createdAt).toLocaleString('en-IN') : '—'}
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          {!isLocked && (
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={handleOpenSaleCompletedModal}
+              disabled={saving || deleting}
+              style={{ background: '#2e7d32', borderColor: '#2e7d32' }}
+            >
+              ✓ Sale Completed
+            </button>
+          )}
           <button className="btn btn-ghost btn-sm" onClick={loadSale} disabled={saving || deleting}>
             ↻ Reload
           </button>
@@ -283,7 +383,7 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
       {error && <ErrorMessage message={error.message} hint={error.hint} variant={error.variant || 'error'} onDismiss={() => setError(null)} />}
       {successMsg && <ErrorMessage message={successMsg} variant="success" onDismiss={() => setSuccessMsg(null)} />}
 
-      {/* Order Summary & Request Actions */}
+      {/* Order Summary & Sourcing */}
       <div className="card" style={{ marginBottom: 24, opacity: isLocked ? 0.85 : 1 }}>
         <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16 }}>Order Overview & Sourcing</h2>
@@ -301,56 +401,37 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
+        <div className="grid-form-3" style={{ marginBottom: 16 }}>
           <div>
-            <div style={{ fontSize: 11, color: 'var(--color-ink-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-              Purchased Item(s)
-            </div>
-            <div style={{ fontSize: 15, fontWeight: 600, marginTop: 4 }}>{sale?.itemNames}</div>
-            <div style={{ fontSize: 12.5, color: 'var(--color-ink-muted)' }}>Sizes: {sale?.sizes}</div>
+            <div className="form-label" style={{ fontSize: 11 }}>PURCHASED ITEM(S)</div>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{sale?.itemNames}</div>
+            <div style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>Sizes: {sale?.sizes}</div>
           </div>
 
           <div>
-            <div style={{ fontSize: 11, color: 'var(--color-ink-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-              Fulfilment Source
-            </div>
-            <div style={{ fontSize: 14, fontWeight: 600, marginTop: 4 }}>
-              <span className="badge badge-info">{sale?.fulfilmentSource}</span>
-            </div>
+            <div className="form-label" style={{ fontSize: 11 }}>FULFILMENT SOURCE</div>
+            <span className="badge badge-info">{sale?.fulfilmentSource}</span>
           </div>
 
           <div>
-            <div style={{ fontSize: 11, color: 'var(--color-ink-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-              Delivery Status
-            </div>
-            <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4 }}>
-              <span className="badge badge-success">{sale?.deliveryStatus}</span>
-            </div>
+            <div className="form-label" style={{ fontSize: 11 }}>DELIVERY STATUS</div>
+            <span className="badge badge-success">{sale?.deliveryStatus}</span>
           </div>
+        </div>
 
-          <div>
-            <div style={{ fontSize: 11, color: 'var(--color-ink-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-              Total Amount
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-brand-primary)', marginTop: 2 }} className="tabular-nums">
-              ₹{parseFloat(sale?.totalAmount || '0').toLocaleString('en-IN')}
-            </div>
-            {sale?.deliveryChargeToggle && (
-              <div style={{ fontSize: 11, color: 'var(--color-ink-muted)' }}>
-                Includes ₹{sale.deliveryChargeAmount} delivery charge
-              </div>
-            )}
+        <div>
+          <div className="form-label" style={{ fontSize: 11 }}>TOTAL AMOUNT</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-brand-primary)' }} className="tabular-nums">
+            ₹{parseFloat(sale?.totalAmount || '0').toLocaleString('en-IN')}
           </div>
         </div>
       </div>
 
       {/* Edit Form */}
-      <form onSubmit={handleSave} className="card" style={{ opacity: isLocked ? 0.7 : 1 }}>
-        <div className="card-header">
-          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16 }}>
-            Edit Customer & Delivery Details {isLocked && '(Read Only)'}
-          </h2>
-        </div>
+      <form onSubmit={handleSaveChanges} className="card">
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, marginBottom: 16, borderBottom: '1px solid var(--color-border)', paddingBottom: 8 }}>
+          Edit Customer & Delivery Details
+        </h2>
 
         <fieldset disabled={isLocked} style={{ border: 'none', padding: 0, margin: 0 }}>
           <div className="grid-form-2">
@@ -361,25 +442,27 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
                 className="form-input"
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
+                required
               />
             </div>
 
             <div className="form-group">
               <label className="form-label">Phone Number</label>
               <input
-                type="tel"
+                type="text"
                 className="form-input"
                 value={customerPhone}
                 onChange={(e) => setCustomerPhone(e.target.value)}
+                required
               />
             </div>
           </div>
 
           <div className="form-group">
             <label className="form-label">Customer Address</label>
-            <input
-              type="text"
-              className="form-input"
+            <textarea
+              className="form-textarea"
+              rows={2}
               value={customerAddress}
               onChange={(e) => setCustomerAddress(e.target.value)}
             />
@@ -401,26 +484,26 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
               </select>
             </div>
 
-            <div className="form-group">
-              <label className="form-label">Delivery Charge</label>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 6 }}>
+            <div className="form-group" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
                 <input
                   type="checkbox"
                   checked={deliveryChargeToggle}
                   onChange={(e) => setDeliveryChargeToggle(e.target.checked)}
                 />
-                <span style={{ fontSize: 13 }}>{deliveryChargeToggle ? 'Charge Applicable' : 'Free Delivery'}</span>
-                {deliveryChargeToggle && (
-                  <input
-                    type="number"
-                    className="form-input"
-                    value={deliveryChargeAmount}
-                    onChange={(e) => setDeliveryChargeAmount(e.target.value)}
-                    style={{ width: 120, padding: '4px 8px' }}
-                    placeholder="₹ Amount"
-                  />
-                )}
-              </div>
+                Apply Delivery Charge
+              </label>
+
+              {deliveryChargeToggle && (
+                <input
+                  type="number"
+                  className="form-input"
+                  style={{ marginTop: 8 }}
+                  placeholder="Delivery charge (₹)"
+                  value={deliveryChargeAmount}
+                  onChange={(e) => setDeliveryChargeAmount(e.target.value)}
+                />
+              )}
             </div>
           </div>
 
@@ -444,10 +527,12 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
                 className="form-select"
                 value={modeOfPayment}
                 onChange={(e) => setModeOfPayment(e.target.value)}
+                disabled={paymentStatus !== 'Paid'}
               >
-                <option value="UPI">UPI</option>
                 <option value="Cash">Cash</option>
+                <option value="UPI">UPI</option>
                 <option value="Card">Card</option>
+                <option value="Bank Transfer">Bank Transfer</option>
               </select>
             </div>
 
@@ -458,69 +543,161 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
                 value={saleStatus}
                 onChange={(e) => setSaleStatus(e.target.value)}
               >
+                <option value="Not Provided / Order Only Placed">Not Provided / Order Only Placed</option>
+                <option value="Payment Pending">Payment Pending</option>
                 <option value="Purchase Satisfied">Purchase Satisfied</option>
+                <option value="Purchase Satisfied & Order Completed">Purchase Satisfied & Order Completed</option>
+                <option value="Replacement Completed & Purchase Satisfied">Replacement Completed & Purchase Satisfied</option>
                 <option value="Return & Refund">Return & Refund</option>
-                <option value="Replacement Completed & Purchase Satisfied">
-                  Replacement Completed & Purchase Satisfied
-                </option>
               </select>
             </div>
           </div>
 
-          {modeOfPayment !== 'Cash' && (
+          {paymentStatus === 'Paid' && modeOfPayment !== 'Cash' && (
             <div className="form-group">
-              <label className="form-label">Transaction ID</label>
+              <label className="form-label">Transaction ID / Reference Number *</label>
               <input
                 type="text"
                 className="form-input"
                 value={transactionId}
                 onChange={(e) => setTransactionId(e.target.value)}
-                placeholder="UPI Reference / Bank Txn ID"
+                placeholder="Required for UPI, Card, or Bank Transfer"
               />
             </div>
           )}
 
           {!isLocked && (
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
-              <Link href="/dashboard/sales" className="btn btn-ghost">Cancel</Link>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
+              <button type="button" className="btn btn-ghost" onClick={loadSale} disabled={saving}>
+                Cancel
+              </button>
               <button type="submit" className="btn btn-primary" disabled={saving}>
-                {saving ? <LoadingGecko size="inline" label="Saving updates…" /> : 'Save Changes'}
+                {saving ? <LoadingGecko size="inline" label="Saving..." /> : 'Save Changes'}
               </button>
             </div>
           )}
         </fieldset>
       </form>
 
-      {/* Confirmation Modal for Replace / Refund Requests */}
+      {/* Confirmation Dialogs for Replace / Refund Requests */}
       {confirmAction && (
         <div className="modal-backdrop" onClick={() => setConfirmAction(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
             <div className="modal-header">
-              <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 17 }}>
-                {confirmAction === 'replace' ? 'Request Item Replacement' : 'Request Return / Refund'}
-              </h2>
+              <h2>Confirm {confirmAction === 'replace' ? 'Replacement' : 'Refund'} Request</h2>
               <button className="btn-icon" onClick={() => setConfirmAction(null)}>×</button>
             </div>
-            <div className="modal-body" style={{ fontSize: 14, color: 'var(--color-ink)', lineHeight: 1.5 }}>
-              {confirmAction === 'replace' ? (
-                <>This sale will be moved to the Replacement section. You&apos;ll make further updates there. Continue?</>
-              ) : (
-                <>This sale will be moved to the Return / Refund section. You&apos;ll make further updates there. Continue?</>
-              )}
+            <div className="modal-body">
+              <p style={{ fontSize: 14, lineHeight: 1.5 }}>
+                Are you sure you want to mark Invoice <strong>{invoiceId}</strong> as <strong>{confirmAction === 'replace' ? 'Replace Requested' : 'Refund Requested'}</strong>?
+              </p>
+              <p style={{ fontSize: 13, color: 'var(--color-ink-muted)', marginTop: 8 }}>
+                This will lock standard editing on this sale record and create a new workflow entry in the {confirmAction === 'replace' ? 'Replacement Management' : 'Return / Refund Management'} section.
+              </p>
             </div>
             <div className="modal-footer">
-              <button type="button" className="btn btn-ghost" onClick={() => setConfirmAction(null)}>
-                Cancel
-              </button>
+              <button className="btn btn-ghost" onClick={() => setConfirmAction(null)}>Cancel</button>
               <button
-                type="button"
                 className="btn btn-primary"
-                disabled={requestingAction}
                 onClick={() => handleRequestAction(confirmAction)}
+                disabled={saving}
               >
-                {requestingAction ? <LoadingGecko size="inline" label="Moving order…" /> : 'Confirm & Move Order'}
+                Confirm & Lock Order
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* SALE COMPLETED PAYMENT VERIFICATION MODAL */}
+      {showCompleteModal && (
+        <div className="modal-backdrop" onClick={() => setShowCompleteModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 500 }}>
+            <div className="modal-header">
+              <h2>Complete Sale — Payment Required</h2>
+              <button className="btn-icon" onClick={() => setShowCompleteModal(false)}>×</button>
+            </div>
+
+            <form onSubmit={handleConfirmCompletionForm}>
+              <div className="modal-body">
+                {completionError && <ErrorMessage message={completionError} variant="error" />}
+
+                <div style={{ background: 'rgba(255, 152, 0, 0.1)', padding: 12, borderRadius: 8, marginBottom: 16, fontSize: 13 }}>
+                  Invoice <strong>{invoiceId}</strong> is currently marked as <strong>{paymentStatus}</strong>. Orders can only be completed when payment is confirmed.
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" style={{ fontWeight: 700 }}>Has payment been received for this sale?</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+                      <input
+                        type="radio"
+                        name="paymentChoice"
+                        checked={completionPaymentChoice === 'paid_now'}
+                        onChange={() => setCompletionPaymentChoice('paid_now')}
+                      />
+                      Yes — Payment Received Now (Mark Paid & Complete)
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+                      <input
+                        type="radio"
+                        name="paymentChoice"
+                        checked={completionPaymentChoice === 'not_paid'}
+                        onChange={() => setCompletionPaymentChoice('not_paid')}
+                      />
+                      No — Payment Not Received Yet
+                    </label>
+                  </div>
+                </div>
+
+                {completionPaymentChoice === 'paid_now' && (
+                  <>
+                    <div className="form-group">
+                      <label className="form-label">Mode of Payment *</label>
+                      <select
+                        className="form-select"
+                        value={completionModeOfPayment}
+                        onChange={(e) => setCompletionModeOfPayment(e.target.value)}
+                      >
+                        <option value="Cash">Cash</option>
+                        <option value="UPI">UPI</option>
+                        <option value="Card">Card</option>
+                        <option value="Bank Transfer">Bank Transfer</option>
+                      </select>
+                    </div>
+
+                    {completionModeOfPayment !== 'Cash' && (
+                      <div className="form-group">
+                        <label className="form-label">Transaction ID / Reference Number *</label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          value={completionTransactionId}
+                          onChange={(e) => setCompletionTransactionId(e.target.value)}
+                          placeholder="Required for UPI, Card, or Bank Transfer"
+                          required
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="modal-footer">
+                <button type="button" className="btn btn-ghost" onClick={() => setShowCompleteModal(false)}>
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ background: '#2e7d32', borderColor: '#2e7d32' }}
+                  disabled={saving}
+                >
+                  {saving ? <LoadingGecko size="inline" label="Completing sale..." /> : '✓ Confirm Payment & Complete Sale'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -1,29 +1,14 @@
 /**
  * lib/validation.ts
  *
- * Shared form validation layer (Phase 8a).
- *
- * Every form in the app uses these schema definitions.
- * Every required field and format constraint produces a SPECIFIC, field-level
- * message — never a generic "Invalid input."
- *
- * Rules per DESIGN.md Section 3.1:
- *  - Be specific, not generic
- *  - Name the actual cause when known
- *  - No stack traces or raw codes in UI messages
+ * Shared form validation layer.
+ * Every form in the application uses these schema definitions.
+ * Every required field and constraint produces a SPECIFIC, field-level user message.
  */
 
 import { z } from 'zod';
 
 // ─── Reusable field validators ───────────────────────────────────────────────
-
-const phoneNumber = z
-  .string()
-  .regex(/^\d{10}$/, 'Enter a 10-digit phone number');
-
-const emailAddress = z
-  .string()
-  .email('Enter a valid email address');
 
 const requiredString = (fieldName: string) =>
   z.string().min(1, `${fieldName} is required`);
@@ -40,26 +25,32 @@ export const ItemSchema = z.object({
   itemName:       requiredString('Item name'),
   itemType:       requiredString('Item type'),
   priceOfItem:    positiveNumber('Price'),
-  availableSizes: z.array(z.enum(['XS', 'S', 'M', 'L', 'XL'] as const)).min(1, 'Select at least one size'),
-  currentStatus:  z.enum(['In Stock', 'Out of Stock'] as const, 'Select a valid status'),
+  availableSizes: z.array(z.enum(['XS', 'S', 'M', 'L', 'XL'] as const)).min(1, 'Select at least one size variant'),
+  currentStatus:  z.string().default('In Stock'),
 });
 export type ItemInput = z.infer<typeof ItemSchema>;
 
 /** Inventory Management */
 export const InventorySchema = z.object({
   itemName:               requiredString('Item name'),
-  size:                   z.enum(['XS', 'S', 'M', 'L', 'XL'] as const, 'Select a valid size'),
+  size:                   z.enum(['XS', 'S', 'M', 'L', 'XL'] as const, 'Select a valid size variant (XS, S, M, L, XL)'),
   totalQuantityAvailable: positiveNumber('Total quantity'),
 });
 export type InventoryInput = z.infer<typeof InventorySchema>;
 
 /** Warehouse Management */
+export const WarehouseFlatItemSchema = z.object({
+  itemName: requiredString('Item name'),
+  size:     z.string().min(1, 'Size is required'),
+  qty:      z.coerce.number().min(1, 'Quantity must be at least 1 piece'),
+});
+
 export const WarehouseItemSizeSchema = z.object({
-  size:     z.enum(['XS', 'S', 'M', 'L', 'XL'] as const),
+  size:     z.string().min(1, 'Size is required'),
   quantity: positiveNumber('Quantity'),
 });
 
-export const WarehouseItemSchema = z.object({
+export const WarehouseNestedItemSchema = z.object({
   itemName: requiredString('Item name'),
   sizes:    z.array(WarehouseItemSizeSchema).min(1, 'Enter at least one size quantity'),
 });
@@ -67,7 +58,7 @@ export const WarehouseItemSchema = z.object({
 export const WarehouseSchema = z.object({
   warehouseLocation: requiredString('Warehouse location'),
   handlerName:       requiredString('Handler name'),
-  items:             z.array(WarehouseItemSchema).min(1, 'Select at least one item'),
+  items:             z.array(z.union([WarehouseFlatItemSchema, WarehouseNestedItemSchema])).min(1, 'Select at least one item and enter a quantity'),
 });
 export type WarehouseInput = z.infer<typeof WarehouseSchema>;
 
@@ -81,14 +72,14 @@ export const SalesSchema = z.object({
   sizesChosen:             z.union([z.array(z.string()).min(1), z.string().min(1)]),
   items:                   z.array(z.object({
                              itemName: z.string(),
-                             size: z.string(),
-                             qty: z.coerce.number(),
+                             size:     z.string(),
+                             qty:      z.coerce.number(),
                            })).optional(),
   totalAmount:             positiveNumber('Total amount'),
   paymentStatus:           z.string().default('Paid'),
   modeOfPayment:           z.string().optional().default('N/A'),
   transactionId:           z.string().optional().default('N/A'),
-  saleStatus:              z.string().default('Purchase Satisfied'),
+  saleStatus:              z.string().default('Not Provided / Order Only Placed'),
   deliveryStatus:          z.string().default('Packed & Ready for Shipment'),
   deliveryChargeToggle:    z.boolean().default(false),
   deliveryChargeAmount:    z.coerce.number().min(0).default(0),
@@ -123,17 +114,12 @@ export type SalesInput = z.infer<typeof SalesSchema>;
 export const ReplacementSchema = z.object({
   invoiceNumber:           requiredString('Invoice number'),
   totalNumberOfItems:      positiveNumber('Total number of items'),
-  lastPurchasedItems:      z.array(z.string()).min(1, 'At least one item required'),
-  lastPurchasedItemsSizes: z.array(z.string()).min(1, 'At least one size required'),
-  newItems:                z.array(z.string()).min(1, 'At least one new item required'),
-  newItemsSizes:           z.array(z.string()).min(1, 'At least one new size required'),
-  invoiceStatus:           z.enum([
-                             'Replacement Approved',
-                             'Replacement Dispatched',
-                             'Replacement Received',
-                             'Satisfied / Completed Order'
-                           ] as const).default('Replacement Approved'),
-  dispositionOfOldItems:   z.enum(['Returned to Inventory', 'Sent to Damaged Products'] as const).optional(),
+  lastPurchasedItems:      z.union([z.array(z.string()), z.string()]),
+  lastPurchasedItemsSizes: z.union([z.array(z.string()), z.string()]),
+  newItems:                z.union([z.array(z.string()), z.string()]),
+  newItemsSizes:           z.union([z.array(z.string()), z.string()]),
+  invoiceStatus:           z.string().default('Replacement Approved'),
+  dispositionOfOldItems:   z.string().optional(),
   restockDestination:      z.string().optional(),
 });
 export type ReplacementInput = z.infer<typeof ReplacementSchema>;
@@ -141,13 +127,13 @@ export type ReplacementInput = z.infer<typeof ReplacementSchema>;
 /** Return/Refund Management */
 export const ReturnRefundSchema = z.object({
   invoiceNumber:              requiredString('Invoice number'),
-  itemVerificationStatus:     z.enum(['No Damage', 'Damage Found on Returned Item(s)'] as const, 'Select a valid verification status'),
+  itemVerificationStatus:     z.string().default('No Damage'),
   refundStatus:               requiredString('Refund status'),
   refundAmount:               positiveNumber('Refund amount'),
   refundCompletedAt:          z.string().optional(),
   transactionId:              z.string().optional(),
-  modeOfRefund:               z.enum(['Cash', 'UPI', 'Card', 'Bank Transfer'] as const, 'Select a valid refund mode'),
-  dispositionOfReturnedItems: z.enum(['Returned to Inventory', 'Sent to Damaged Products'] as const).optional(),
+  modeOfRefund:               z.string().optional(),
+  dispositionOfReturnedItems: z.string().optional(),
   restockDestination:         z.string().optional(),
 });
 export type ReturnRefundInput = z.infer<typeof ReturnRefundSchema>;
@@ -156,7 +142,7 @@ export type ReturnRefundInput = z.infer<typeof ReturnRefundSchema>;
 export const DamagedProductSchema = z.object({
   invoiceNumber: z.string().optional(),
   itemName:      requiredString('Item name'),
-  size:          z.enum(['XS', 'S', 'M', 'L', 'XL'] as const, 'Select a valid size'),
+  size:          z.string().min(1, 'Select a valid size'),
   quantity:      positiveNumber('Quantity'),
   customerName:  z.string().optional(),
   reasonNotes:   z.string().optional(),
@@ -166,20 +152,11 @@ export type DamagedProductInput = z.infer<typeof DamagedProductSchema>;
 /** Inventory History Tracker */
 export const InventoryHistorySchema = z.object({
   itemName:             requiredString('Item name'),
-  size:                 z.enum(['XS', 'S', 'M', 'L', 'XL'] as const),
+  size:                 z.string().min(1, 'Size is required'),
   quantityChange:       z.coerce.number(),
-  affectedSheet:        z.enum(['Inventory', 'Warehouse'] as const),
+  affectedSheet:        z.string(),
   handler:              z.string().optional(),
-  transactionType:      z.enum([
-                          'Sale Deduction',
-                          'Replacement — Old Item Restock',
-                          'Replacement — New Item Deduction',
-                          'Refund Restock',
-                          'Warehouse Allocation',
-                          'Warehouse Deallocation',
-                          'Damaged Disposal',
-                          'Manual Adjustment'
-                        ] as const),
+  transactionType:      z.string(),
   relatedInvoiceNumber: z.string().optional(),
   resultingBalance:     z.coerce.number(),
   notes:                z.string().optional(),
@@ -189,9 +166,9 @@ export type InventoryHistoryInput = z.infer<typeof InventoryHistorySchema>;
 /** Admin Profile / Create Admin */
 export const AdminSchema = z.object({
   adminName:     requiredString('Admin name'),
-  phoneNumber:   phoneNumber,
-  emailId:       emailAddress,
-  notifications: z.enum(['Enabled', 'Disabled']).default('Enabled'),
+  phoneNumber:   z.string().min(1, 'Phone number is required'),
+  emailId:       z.string().email('Enter a valid email address'),
+  notifications: z.string().default('Enabled'),
   password:      z.string().min(8, 'Password must be at least 8 characters').optional(),
 });
 export type AdminInput = z.infer<typeof AdminSchema>;
@@ -205,14 +182,8 @@ export type LoginInput = z.infer<typeof LoginSchema>;
 
 /** Superadmin claim */
 export const ClaimSchema = z.object({
-  username:  z.string()
-    .min(3, 'Username must be at least 3 characters')
-    .max(50, 'Username must be 50 characters or fewer')
-    .regex(/^[a-zA-Z0-9_.-]+$/, 'Username can only contain letters, numbers, underscores, dots, and hyphens'),
-  password:  z.string()
-    .min(8, 'Password must be at least 8 characters')
-    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
-    .regex(/[0-9]/, 'Password must contain at least one number'),
+  username:  z.string().min(3, 'Username must be at least 3 characters'),
+  password:  z.string().min(8, 'Password must be at least 8 characters'),
   claimCode: z.string().optional(),
 });
 export type ClaimInput = z.infer<typeof ClaimSchema>;
@@ -221,10 +192,8 @@ export type ClaimInput = z.infer<typeof ClaimSchema>;
 export const SheetConfigSchema = z.object({
   moduleKey:     requiredString('Module key'),
   displayName:   requiredString('Display name'),
-  spreadsheetId: z.string()
-    .min(20, 'Enter a valid Google Spreadsheet ID (at least 20 characters)')
-    .regex(/^[a-zA-Z0-9_-]+$/, 'Spreadsheet ID contains invalid characters'),
-  tabName: requiredString('Tab name'),
+  spreadsheetId: z.string().min(15, 'Enter a valid Google Spreadsheet ID'),
+  tabName:       requiredString('Tab name'),
 });
 export type SheetConfigInput = z.infer<typeof SheetConfigSchema>;
 
@@ -237,14 +206,15 @@ export type NoteInput = z.infer<typeof NoteSchema>;
 // ─── Validation helper ────────────────────────────────────────────────────────
 
 export interface ValidationResult<T> {
-  valid:  boolean;
-  data?:  T;
-  errors: Record<string, string>;
+  valid:        boolean;
+  data?:        T;
+  errors:       Record<string, string>;
+  errorMessage: string;
 }
 
 /**
  * Validate data against a Zod schema.
- * Returns { valid: true, data } on success, or { valid: false, errors } on failure.
+ * Returns { valid: true, data } on success, or { valid: false, errors, errorMessage } on failure.
  * Errors are keyed by field name with specific, user-friendly messages.
  */
 export function validate<T>(
@@ -254,16 +224,25 @@ export function validate<T>(
   const result = schema.safeParse(data);
 
   if (result.success) {
-    return { valid: true, data: result.data, errors: {} };
+    return { valid: true, data: result.data, errors: {}, errorMessage: '' };
   }
 
   const errors: Record<string, string> = {};
+  const messages: string[] = [];
+
   for (const issue of result.error.issues) {
     const path = issue.path.join('.') || '_root';
     if (!errors[path]) {
       errors[path] = issue.message;
+      if (issue.message && !messages.includes(issue.message)) {
+        messages.push(issue.message);
+      }
     }
   }
 
-  return { valid: false, errors };
+  const errorMessage = messages.length > 0
+    ? messages.join('. ')
+    : 'Validation failed. Please check the required fields.';
+
+  return { valid: false, errors, errorMessage };
 }

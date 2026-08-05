@@ -176,7 +176,7 @@ export default function NewSalePage() {
         paymentStatus,
         modeOfPayment:        paymentStatus === 'Paid' ? modeOfPayment : 'N/A',
         transactionId:        paymentStatus === 'Paid' ? (transactionId || 'N/A') : 'N/A',
-        saleStatus:           paymentStatus === 'Paid' ? 'Sale Closed' : 'Payment Pending',
+        saleStatus:           paymentStatus === 'Paid' && deliveryStatus === 'Order Delivered Successfully' ? 'Purchase Satisfied & Order Completed' : 'Not Provided / Order Only Placed',
         deliveryStatus,
         deliveryChargeToggle: hasDeliveryCharge,
         deliveryChargeAmount: hasDeliveryCharge ? (parseFloat(deliveryCharge || '0') || 0) : 0,

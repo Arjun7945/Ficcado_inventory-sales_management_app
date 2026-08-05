@@ -43,7 +43,6 @@ export async function GET() {
       .filter(Boolean);
 
     // Calculate live unallocated balances per item+size from Inventory
-    // Map: `${itemName}:${size}` -> { totalQty, allocatedQty, remainingQty }
     const inventoryStock: Record<string, { itemName: string; size: string; totalQty: number; allocatedQty: number; remainingQty: number }> = {};
 
     for (const row of invRows.slice(1)) {
@@ -52,10 +51,10 @@ export async function GET() {
       const totalQty = parseInt(row[COL_INV.totalQty] ?? '0', 10) || 0;
 
       if (name && size) {
-        const key = `${name}:${size}`;
+        const key = `${name.toLowerCase()}:${size.toUpperCase()}`;
         inventoryStock[key] = {
           itemName: name,
-          size,
+          size: size.toUpperCase(),
           totalQty,
           allocatedQty: 0,
           remainingQty: totalQty,
@@ -65,7 +64,7 @@ export async function GET() {
 
     // Sum existing warehouse allocations
     for (const w of warehouse) {
-      const key = `${w.itemName}:${w.size}`;
+      const key = `${w.itemName.toLowerCase()}:${w.size.toUpperCase()}`;
       if (inventoryStock[key]) {
         inventoryStock[key].allocatedQty += w.qty;
         inventoryStock[key].remainingQty = Math.max(0, inventoryStock[key].totalQty - inventoryStock[key].allocatedQty);
@@ -90,40 +89,63 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const { valid, data, errors } = validate(WarehouseSchema, body);
-    if (!valid) return Response.json({ error: 'Validation failed', errors }, { status: 400 });
 
-    const { warehouseLocation, handlerName, items } = data!;
-
-    const [wRows, invRows, adminRows] = await Promise.all([
-      readAllRows('warehouse'),
-      readAllRows('inventory'),
-      readAllRows('admin_info'),
-    ]);
-
-    // 1. Verify Handler exists in Admin list
-    const validAdmins = adminRows.slice(1).map((r) => (r[1] ?? '').trim()).filter(Boolean);
-    if (!validAdmins.includes(handlerName.trim())) {
-      return Response.json(
-        { error: `Handler '${handlerName}' is not a registered admin. Select an admin from the handler list.` },
-        { status: 400 }
-      );
+    // Normalize items array to support both flat [{ itemName, size, qty }] and nested [{ itemName, sizes: [...] }]
+    const normalizedItems: { itemName: string; size: string; qty: number }[] = [];
+    if (Array.isArray(body.items)) {
+      for (const it of body.items) {
+        if (it.itemName && it.size && (it.qty !== undefined || it.quantity !== undefined)) {
+          const q = parseInt(String(it.qty ?? it.quantity ?? 0), 10) || 0;
+          if (q > 0) {
+            normalizedItems.push({ itemName: String(it.itemName).trim(), size: String(it.size).trim(), qty: q });
+          }
+        } else if (it.itemName && Array.isArray(it.sizes)) {
+          for (const sz of it.sizes) {
+            const q = parseInt(String(sz.quantity ?? sz.qty ?? 0), 10) || 0;
+            if (q > 0) {
+              normalizedItems.push({ itemName: String(it.itemName).trim(), size: String(sz.size).trim(), qty: q });
+            }
+          }
+        }
+      }
     }
 
-    // 2. Build Inventory totals map
+    const payloadToValidate = {
+      warehouseLocation: body.warehouseLocation,
+      handlerName:       body.handlerName,
+      items:             normalizedItems,
+    };
+
+    const validation = validate(WarehouseSchema, payloadToValidate);
+    if (!validation.valid) {
+      return Response.json({ error: validation.errorMessage, errors: validation.errors }, { status: 400 });
+    }
+
+    const { warehouseLocation, handlerName } = validation.data!;
+
+    if (normalizedItems.length === 0) {
+      return Response.json({ error: 'Select at least one item variant and enter a quantity greater than 0.' }, { status: 400 });
+    }
+
+    const [wRows, invRows] = await Promise.all([
+      readAllRows('warehouse'),
+      readAllRows('inventory'),
+    ]);
+
+    // Build Inventory totals map (normalized key)
     const invMap: Record<string, number> = {};
     for (const row of invRows.slice(1)) {
       const name = (row[COL_INV.itemName] ?? '').trim();
       const size = (row[COL_INV.size] ?? '').trim();
       const totalQty = parseInt(row[COL_INV.totalQty] ?? '0', 10) || 0;
       if (name && size) {
-        invMap[`${name}:${size}`] = totalQty;
+        invMap[`${name.toLowerCase()}:${size.toUpperCase()}`] = totalQty;
       }
     }
 
-    // 3. Build existing allocated map
+    // Build existing allocated map
     const allocMap: Record<string, number> = {};
-    const handlerStockMap: Record<string, number> = {}; // for resulting balance calculation
+    const handlerStockMap: Record<string, number> = {};
 
     for (const row of wRows.slice(1)) {
       const name = (row[COL_W.itemName] ?? '').trim();
@@ -132,75 +154,78 @@ export async function POST(request: Request) {
       const qty = parseInt(row[COL_W.qty] ?? '0', 10) || 0;
 
       if (name && size) {
-        const key = `${name}:${size}`;
+        const key = `${name.toLowerCase()}:${size.toUpperCase()}`;
         allocMap[key] = (allocMap[key] || 0) + qty;
-        if (handler === handlerName.trim()) {
+        if (handler.toLowerCase() === handlerName.trim().toLowerCase()) {
           handlerStockMap[key] = (handlerStockMap[key] || 0) + qty;
         }
       }
     }
 
-    // 4. Validate all requested items/sizes against remaining balances
-    for (const item of items) {
-      for (const sizeQty of item.sizes) {
-        const key = `${item.itemName.trim()}:${sizeQty.size.trim()}`;
-        const total = invMap[key] ?? 0;
-        const alreadyAllocated = allocMap[key] ?? 0;
-        const remaining = total - alreadyAllocated;
+    // Validate all requested items/sizes against remaining balances
+    for (const item of normalizedItems) {
+      const key = `${item.itemName.toLowerCase()}:${item.size.toUpperCase()}`;
+      const total = invMap[key] ?? 0;
+      const alreadyAllocated = allocMap[key] ?? 0;
+      const remaining = total - alreadyAllocated;
 
-        if (sizeQty.quantity > remaining) {
-          return Response.json(
-            {
-              error: `Only ${Math.max(0, remaining)} piece(s) of ${item.itemName}, size ${sizeQty.size} remain unallocated.`,
-            },
-            { status: 400 }
-          );
-        }
+      if (item.qty > remaining) {
+        return Response.json(
+          { error: `Only ${Math.max(0, remaining)} piece(s) of ${item.itemName} (${item.size}) remain unallocated in Inventory.` },
+          { status: 400 }
+        );
       }
     }
 
-    // 5. Commit allocations
+    // Commit allocations
     const now = new Date().toISOString();
     let currentRowsCount = wRows.length;
+    const rowsToAppend: string[][] = [];
 
-    for (const item of items) {
-      for (const sizeQty of item.sizes) {
-        currentRowsCount++;
-        const sno = String(currentRowsCount);
-        const itemName = item.itemName.trim();
-        const size = sizeQty.size.trim();
-        const qty = sizeQty.quantity;
+    for (const item of normalizedItems) {
+      currentRowsCount++;
+      const sno = String(currentRowsCount);
+      const itemName = item.itemName.trim();
+      const size = item.size.trim();
+      const qty = item.qty;
 
-        await appendRows('warehouse', [[
-          sno, warehouseLocation, handlerName, itemName,
-          size, String(qty), admin.name, now, admin.name, now,
-        ]]);
+      rowsToAppend.push([
+        sno, warehouseLocation.trim(), handlerName.trim(), itemName,
+        size, String(qty), admin.name, now, admin.name, now,
+      ]);
 
-        // Calculate resulting balance for this handler & item+size
-        const key = `${itemName}:${size}`;
-        const previousHandlerBalance = handlerStockMap[key] || 0;
-        const newHandlerBalance = previousHandlerBalance + qty;
-        handlerStockMap[key] = newHandlerBalance;
+      const key = `${itemName.toLowerCase()}:${size.toUpperCase()}`;
+      const newHandlerBalance = (handlerStockMap[key] || 0) + qty;
 
-        // Log to inventory_history
-        await recordInventoryHistory({
-          itemName,
-          size,
-          quantityChange: qty,
-          affectedSheet: 'Warehouse',
-          handler: handlerName,
-          transactionType: 'Warehouse Allocation',
-          resultingBalance: newHandlerBalance,
-          createdBy: admin.name,
-          notes: `Allocated to ${warehouseLocation}`,
-        });
-      }
+      await recordInventoryHistory({
+        itemName,
+        size,
+        quantityChange: qty,
+        affectedSheet: 'Warehouse',
+        handler: handlerName.trim(),
+        transactionType: 'Warehouse Allocation',
+        resultingBalance: newHandlerBalance,
+        createdBy: admin.name,
+        notes: `Allocated ${qty} piece(s) to ${handlerName.trim()} at ${warehouseLocation.trim()}`,
+      });
     }
 
-    await logActivity({ adminName: admin.name, action: 'created', module: 'Warehouse Management', moduleKey: 'warehouse', recordId: warehouseLocation });
-    return Response.json({ success: true, message: `Warehouse entries added for ${warehouseLocation}.` }, { status: 201 });
+    if (rowsToAppend.length > 0) {
+      await appendRows('warehouse', rowsToAppend);
+    }
+
+    const logMsg = `${admin.name} allocated ${normalizedItems.length} item variant(s) to ${handlerName.trim()} at ${warehouseLocation.trim()}.`;
+    await logActivity({
+      adminName: admin.name,
+      action: 'created',
+      module: 'Warehouse Management',
+      moduleKey: 'warehouse',
+      recordId: `${handlerName.trim()} (${warehouseLocation.trim()})`,
+    });
+
+    return Response.json({ success: true, message: logMsg });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    return Response.json({ error: "Couldn't save warehouse entry.", detail: message }, { status: 500 });
+    return Response.json({ error: "Couldn't create warehouse allocation.", detail: message }, { status: 500 });
   }
 }

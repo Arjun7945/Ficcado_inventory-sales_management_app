@@ -42,8 +42,11 @@ const PAYMENT_BADGE: Record<string, string> = {
 };
 
 const STATUS_BADGE: Record<string, string> = {
-  'Purchase Satisfied': 'badge-success',
-  'Return & Refund':    'badge-error',
+  'Purchase Satisfied':                         'badge-success',
+  'Purchase Satisfied & Order Completed':       'badge-success',
+  'Not Provided / Order Only Placed':           'badge-neutral',
+  'Payment Pending':                            'badge-warning',
+  'Return & Refund':                            'badge-error',
   'Replacement Completed & Purchase Satisfied': 'badge-info',
 };
 
