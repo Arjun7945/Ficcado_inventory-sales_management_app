@@ -19,6 +19,7 @@
     "react-dom": "19.2.8",
     "swr": "^2.5.0",
     "uuid": "^14.0.1",
+    "xlsx": "^0.18.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {

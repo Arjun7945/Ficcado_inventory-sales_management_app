@@ -205,3 +205,57 @@ export async function getBootstrapSpreadsheetId(): Promise<BootstrapResult> {
 export function bustBootstrapCache(): void {
   _cachedSpreadsheetId = null;
 }
+
+/**
+ * Read all key-value entries from the AppMeta tab.
+ * Returns a Map<key, value>.
+ */
+export async function readAppMeta(): Promise<Map<string, string>> {
+  const { spreadsheetId } = await getBootstrapSpreadsheetId();
+  const sheets = await getSheetsClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${APP_META_TAB}!A:C`,
+  });
+  const rows = (res.data.values ?? []) as string[][];
+  const meta = new Map<string, string>();
+  for (const row of rows.slice(1)) {
+    if (row[0]) meta.set(row[0], row[1] || '');
+  }
+  return meta;
+}
+
+/**
+ * Write / update a key-value pair in the AppMeta tab.
+ * If the key already exists, its row is updated in place.
+ * If not, a new row is appended.
+ */
+export async function writeAppMeta(key: string, value: string): Promise<void> {
+  const { spreadsheetId } = await getBootstrapSpreadsheetId();
+  const sheets = await getSheetsClient();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${APP_META_TAB}!A:C`,
+  });
+  const rows = (res.data.values ?? []) as string[][];
+  const rowIdx = rows.findIndex((r) => r[0] === key);
+  const now = new Date().toISOString();
+
+  if (rowIdx > 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${APP_META_TAB}!A${rowIdx + 1}:C${rowIdx + 1}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [[key, value, now]] },
+    });
+  } else {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: `${APP_META_TAB}!A:C`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [[key, value, now]] },
+    });
+  }
+}
+

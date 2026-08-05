@@ -87,3 +87,7 @@ export async function POST(request: Request) {
     );
   }
 }
+
+/** PUT is identical to POST — kept for RESTful semantics in the Admin Control Centre UI */
+export { POST as PUT };
+

@@ -4,12 +4,13 @@
  * components/AppSidebar.tsx
  *
  * Main navigation sidebar — visible to all logged-in admins.
- * Superadmin sees additional admin management items.
+ * Includes profile link, notification bell with unread badge, and logout.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
+import NotificationBell from './NotificationBell';
 
 interface NavItem {
   label:    string;
@@ -19,16 +20,17 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard',         href: '/dashboard',         icon: '⊞', section: 'OVERVIEW' },
-  { label: 'Items',             href: '/dashboard/items',   icon: '◈', section: 'MODULES' },
-  { label: 'Inventory',         href: '/dashboard/inventory', icon: '▦' },
-  { label: 'Warehouse',         href: '/dashboard/warehouse', icon: '⬡' },
-  { label: 'Sales',             href: '/dashboard/sales',   icon: '◆' },
-  { label: 'Replacements',      href: '/dashboard/replacement', icon: '⟳' },
+  { label: 'Dashboard',         href: '/dashboard',              icon: '⊞', section: 'OVERVIEW' },
+  { label: 'Items',             href: '/dashboard/items',        icon: '◈', section: 'MODULES' },
+  { label: 'Inventory',         href: '/dashboard/inventory',    icon: '▦' },
+  { label: 'Warehouse',         href: '/dashboard/warehouse',    icon: '⬡' },
+  { label: 'Sales',             href: '/dashboard/sales',        icon: '◆' },
+  { label: 'Replacements',      href: '/dashboard/replacement',  icon: '⟳' },
   { label: 'Returns & Refunds', href: '/dashboard/return-refund', icon: '↩' },
-  { label: 'Activity Log',      href: '/dashboard/activity', icon: '◉', section: 'RECORDS' },
-  { label: 'Keep Notes',        href: '/dashboard/notes',   icon: '✎' },
-  { label: 'Admin Control',     href: '/dashboard/admin',   icon: '⚙', section: 'ADMIN' },
+  { label: 'Activity Log',      href: '/dashboard/activity',     icon: '◉', section: 'RECORDS' },
+  { label: 'Keep Notes',        href: '/dashboard/notes',        icon: '✎' },
+  { label: 'Admin Control',     href: '/dashboard/admin',        icon: '⚙', section: 'ADMIN' },
+  { label: 'My Profile',        href: '/dashboard/profile',      icon: '👤' },
 ];
 
 interface AppSidebarProps {
@@ -46,6 +48,9 @@ export default function AppSidebar({ adminName, adminRole, onLogout }: AppSideba
       <div style={{
         padding: '20px 20px 12px',
         borderBottom: '1px solid var(--color-border)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <svg width="28" height="34" viewBox="0 0 160 200" fill="none">
@@ -71,11 +76,13 @@ export default function AppSidebar({ adminName, adminRole, onLogout }: AppSideba
             </div>
           </div>
         </div>
+        {/* Notification bell in sidebar header */}
+        <NotificationBell />
       </div>
 
       {/* Navigation */}
       <nav style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
-        {NAV_ITEMS.map((item, i) => (
+        {NAV_ITEMS.map((item) => (
           <React.Fragment key={item.href}>
             {item.section && (
               <div className="nav-section-label">{item.section}</div>
@@ -98,26 +105,29 @@ export default function AppSidebar({ adminName, adminRole, onLogout }: AppSideba
         padding: '14px 16px',
         borderTop: '1px solid var(--color-border)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-          <div style={{
-            width: 34, height: 34, borderRadius: '50%',
-            backgroundColor: 'var(--color-brand-secondary)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14,
-            color: 'var(--color-brand-primary)',
-            flexShrink: 0,
-          }}>
-            {adminName.charAt(0).toUpperCase()}
-          </div>
-          <div style={{ overflow: 'hidden' }}>
-            <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {adminName}
+        <Link href="/dashboard/profile" style={{ textDecoration: 'none' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, cursor: 'pointer' }}
+               className="nav-item" role="link">
+            <div style={{
+              width: 34, height: 34, borderRadius: '50%',
+              backgroundColor: 'var(--color-brand-secondary)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 14,
+              color: 'var(--color-brand-primary)',
+              flexShrink: 0,
+            }}>
+              {adminName.charAt(0).toUpperCase()}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--color-ink-muted)', textTransform: 'capitalize' }}>
-              {adminRole}
+            <div style={{ overflow: 'hidden' }}>
+              <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {adminName}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--color-ink-muted)', textTransform: 'capitalize' }}>
+                {adminRole}
+              </div>
             </div>
           </div>
-        </div>
+        </Link>
         <button
           onClick={onLogout}
           className="btn btn-ghost"

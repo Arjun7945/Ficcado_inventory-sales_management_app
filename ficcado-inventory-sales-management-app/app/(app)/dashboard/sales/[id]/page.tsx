@@ -208,7 +208,23 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
             Created by {sale?.createdBy} on {sale?.createdAt ? new Date(sale.createdAt).toLocaleString('en-IN') : '—'}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Link
+            href={`/dashboard/sales/${encodeURIComponent(invoiceId)}/invoice`}
+            className="btn btn-secondary btn-sm"
+            target="_blank"
+            rel="noopener"
+          >
+            🧾 Generate Invoice
+          </Link>
+          <Link
+            href={`/dashboard/sales/${encodeURIComponent(invoiceId)}/courier-slip`}
+            className="btn btn-secondary btn-sm"
+            target="_blank"
+            rel="noopener"
+          >
+            📦 Courier Slip
+          </Link>
           <button className="btn btn-ghost btn-sm" onClick={loadSale} disabled={saving || deleting}>
             ↻ Reload Latest Data
           </button>
@@ -217,6 +233,7 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
           </button>
         </div>
       </div>
+
 
       {/* Error / Success Banners */}
       {error && (
