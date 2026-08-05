@@ -19,23 +19,37 @@ import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
 
 type StepStatus = 'pending' | 'active' | 'complete' | 'error';
-type ModuleKey = 'items' | 'inventory' | 'warehouse' | 'sales' | 'replacement' | 'return_refund' | 'admin_info' | 'keep_notes' | 'activity_log';
+type ModuleKey =
+  | 'items'
+  | 'inventory'
+  | 'warehouse'
+  | 'sales'
+  | 'replacement'
+  | 'return_refund'
+  | 'admin_info'
+  | 'keep_notes'
+  | 'activity_log'
+  | 'damaged_products'
+  | 'inventory_history';
 
 const MODULE_KEYS: ModuleKey[] = [
   'items', 'inventory', 'warehouse', 'sales', 'replacement',
   'return_refund', 'admin_info', 'keep_notes', 'activity_log',
+  'damaged_products', 'inventory_history',
 ];
 
 const MODULE_LABELS: Record<ModuleKey, string> = {
-  items:         'Items Management',
-  inventory:     'Inventory Management',
-  warehouse:     'Warehouse Management',
-  sales:         'Sales Management',
-  replacement:   'Replacement Management',
-  return_refund: 'Return / Refund Management',
-  admin_info:    'Admin Information',
-  keep_notes:    'Keep Notes',
-  activity_log:  'Activity Log',
+  items:             'Items Management',
+  inventory:         'Inventory Management',
+  warehouse:         'Warehouse Management',
+  sales:             'Sales Management',
+  replacement:       'Replacement Management',
+  return_refund:     'Return / Refund Management',
+  admin_info:        'Admin Information',
+  keep_notes:        'Keep Notes',
+  activity_log:      'Activity Log',
+  damaged_products:  'Damaged Products Management',
+  inventory_history: 'Inventory History Tracker',
 };
 
 interface ModuleSheetEntry {
@@ -279,7 +293,7 @@ export default function WizardPage() {
             </div>
             <p style={{ color: 'var(--color-ink-muted)', marginBottom: 20, fontSize: 14 }}>
               Verify the service account credentials work by doing a live connection test.
-              The app will auto-create the <strong>Ficcado-System-Config</strong> spreadsheet if it doesn&apos;t exist yet.
+              The app will auto-create or connect to the system configuration spreadsheet if it doesn&apos;t exist yet.
             </p>
 
             {loading && <LoadingGecko size="inline" label="Testing connection…" />}

@@ -84,6 +84,17 @@ export const SalesSchema = z.object({
   modeOfPayment:           z.enum(['Cash', 'UPI', 'Card'] as const, 'Select a valid payment mode'),
   transactionId:           z.string().optional(),
   saleStatus:              z.enum(['Purchase Satisfied', 'Return & Refund', 'Replacement Completed & Purchase Satisfied'] as const).default('Purchase Satisfied'),
+  deliveryStatus:          z.enum([
+                             'Packed & Ready for Shipment',
+                             'In Transit',
+                             'Order Delivered Successfully',
+                             'Order Missing',
+                             'Order Failed to Deliver & Returning Back'
+                           ] as const).default('Packed & Ready for Shipment'),
+  deliveryChargeToggle:    z.boolean().default(false),
+  deliveryChargeAmount:    z.coerce.number().min(0).default(0),
+  fulfilmentStatus:        z.enum(['Normal', 'Replace-Requested', 'Refund-Requested'] as const).default('Normal'),
+  fulfilmentSource:        requiredString('Fulfilment source'),
 }).refine(
   (data) => {
     if (data.modeOfPayment !== 'Cash' && !data.transactionId) {
@@ -94,6 +105,17 @@ export const SalesSchema = z.object({
   {
     message: 'Transaction ID is required for UPI and Card payments',
     path: ['transactionId'],
+  }
+).refine(
+  (data) => {
+    if (data.deliveryChargeToggle && data.deliveryChargeAmount <= 0) {
+      return false;
+    }
+    return true;
+  },
+  {
+    message: 'Delivery charge amount must be greater than 0 when delivery charge is enabled',
+    path: ['deliveryChargeAmount'],
   }
 );
 export type SalesInput = z.infer<typeof SalesSchema>;
@@ -106,21 +128,64 @@ export const ReplacementSchema = z.object({
   lastPurchasedItemsSizes: z.array(z.string()).min(1, 'At least one size required'),
   newItems:                z.array(z.string()).min(1, 'At least one new item required'),
   newItemsSizes:           z.array(z.string()).min(1, 'At least one new size required'),
-  invoiceStatus:           z.enum(['Replacement Pending', 'Replacement Completed & Purchase Satisfied'] as const).default('Replacement Pending'),
+  invoiceStatus:           z.enum([
+                             'Replacement Approved',
+                             'Replacement Dispatched',
+                             'Replacement Received',
+                             'Satisfied / Completed Order'
+                           ] as const).default('Replacement Approved'),
+  dispositionOfOldItems:   z.enum(['Returned to Inventory', 'Sent to Damaged Products'] as const).optional(),
+  restockDestination:      z.string().optional(),
 });
 export type ReplacementInput = z.infer<typeof ReplacementSchema>;
 
 /** Return/Refund Management */
 export const ReturnRefundSchema = z.object({
-  invoiceNumber:          requiredString('Invoice number'),
-  itemVerificationStatus: z.enum(['No Damage', 'Damage Found on Returned Item(s)'] as const, 'Select a valid verification status'),
-  refundStatus:           requiredString('Refund status'),
-  refundAmount:           positiveNumber('Refund amount'),
-  refundCompletedAt:      z.string().optional(),
-  transactionId:          z.string().optional(),
-  modeOfRefund:           z.enum(['Cash', 'UPI', 'Card', 'Bank Transfer'] as const, 'Select a valid refund mode'),
+  invoiceNumber:              requiredString('Invoice number'),
+  itemVerificationStatus:     z.enum(['No Damage', 'Damage Found on Returned Item(s)'] as const, 'Select a valid verification status'),
+  refundStatus:               requiredString('Refund status'),
+  refundAmount:               positiveNumber('Refund amount'),
+  refundCompletedAt:          z.string().optional(),
+  transactionId:              z.string().optional(),
+  modeOfRefund:               z.enum(['Cash', 'UPI', 'Card', 'Bank Transfer'] as const, 'Select a valid refund mode'),
+  dispositionOfReturnedItems: z.enum(['Returned to Inventory', 'Sent to Damaged Products'] as const).optional(),
+  restockDestination:         z.string().optional(),
 });
 export type ReturnRefundInput = z.infer<typeof ReturnRefundSchema>;
+
+/** Damaged Products Management */
+export const DamagedProductSchema = z.object({
+  invoiceNumber: z.string().optional(),
+  itemName:      requiredString('Item name'),
+  size:          z.enum(['XS', 'S', 'M', 'L', 'XL'] as const, 'Select a valid size'),
+  quantity:      positiveNumber('Quantity'),
+  customerName:  z.string().optional(),
+  reasonNotes:   z.string().optional(),
+});
+export type DamagedProductInput = z.infer<typeof DamagedProductSchema>;
+
+/** Inventory History Tracker */
+export const InventoryHistorySchema = z.object({
+  itemName:             requiredString('Item name'),
+  size:                 z.enum(['XS', 'S', 'M', 'L', 'XL'] as const),
+  quantityChange:       z.coerce.number(),
+  affectedSheet:        z.enum(['Inventory', 'Warehouse'] as const),
+  handler:              z.string().optional(),
+  transactionType:      z.enum([
+                          'Sale Deduction',
+                          'Replacement — Old Item Restock',
+                          'Replacement — New Item Deduction',
+                          'Refund Restock',
+                          'Warehouse Allocation',
+                          'Warehouse Deallocation',
+                          'Damaged Disposal',
+                          'Manual Adjustment'
+                        ] as const),
+  relatedInvoiceNumber: z.string().optional(),
+  resultingBalance:     z.coerce.number(),
+  notes:                z.string().optional(),
+});
+export type InventoryHistoryInput = z.infer<typeof InventoryHistorySchema>;
 
 /** Admin Profile / Create Admin */
 export const AdminSchema = z.object({

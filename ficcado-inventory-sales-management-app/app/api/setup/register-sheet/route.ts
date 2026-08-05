@@ -19,41 +19,47 @@ import { setModuleConfig } from '@/lib/google/sheetConfig';
 
 export const dynamic = 'force-dynamic';
 
-/** Headers for each module sheet, matching spec Section 3.x exactly. */
+/** Headers for each module sheet, matching spec Section 3.x and Part 2 exactly. */
 const MODULE_HEADERS: Record<string, string[]> = {
   items:          ['S.No', 'Item Name', 'Item Type', 'Price of Item', 'Available Sizes', 'Created By', 'Created At', 'Updated By', 'Updated At', 'Current Status'],
   inventory:      ['S.No', 'Item Name', 'Size', 'Total Quantity Available', 'Added By (Admin)', 'Updated At', 'Updated By (Admin)', 'Created At'],
   warehouse:      ['S.No', 'Warehouse Location', 'Handler Name', 'Item Name', 'Size', 'Quantity', 'Created By', 'Created At', 'Updated By', 'Updated At'],
-  sales:          ['S.No', 'Invoice Number', 'Sale Status', 'Customer Name', 'Customer Phone Number', 'Customer Address', 'Total Number of Items Purchased', 'Item(s) Name(s)', 'Size(s) Chosen', 'Total Amount', 'Payment Status', 'Mode of Payment', 'Transaction ID', 'Created At', 'Created By (Admin)', 'Updated At', 'Updated By', 'Version'],
-  replacement:    ['S.No', 'Invoice Number', 'Total Number of Items Purchased', 'Last Purchased Item(s)', 'Last Purchased Item(s) Size', 'New Item(s)', 'New Item(s) Size', 'Invoice Status', 'Created At', 'Created By', 'Updated At', 'Updated By', 'Version'],
-  return_refund:  ['S.No', 'Invoice Number', 'Item Verification Status', 'Refund Status', 'Refund Amount', 'Refund Completed Date & Time', 'Transaction ID', 'Mode of Refund', 'Created At', 'Created By', 'Updated At', 'Updated By', 'Version'],
+  sales:          ['S.No', 'Invoice Number', 'Sale Status', 'Customer Name', 'Customer Phone Number', 'Customer Address', 'Total Number of Items Purchased', 'Item(s) Name(s)', 'Size(s) Chosen', 'Total Amount', 'Payment Status', 'Mode of Payment', 'Transaction ID', 'Created At', 'Created By (Admin)', 'Updated At', 'Updated By', 'Version', 'Delivery Status', 'Delivery Charge Toggle', 'Delivery Charge Amount', 'Fulfilment Request Status', 'Fulfilment Source'],
+  replacement:    ['S.No', 'Invoice Number', 'Total Number of Items Purchased', 'Last Purchased Item(s)', 'Last Purchased Item(s) Size', 'New Item(s)', 'New Item(s) Size', 'Invoice Status', 'Disposition of Old Items', 'Restock Destination', 'Created At', 'Created By', 'Updated At', 'Updated By', 'Version'],
+  return_refund:  ['S.No', 'Invoice Number', 'Item Verification Status', 'Refund Status', 'Refund Amount', 'Refund Completed Date & Time', 'Transaction ID', 'Mode of Refund', 'Disposition of Returned Items', 'Restock Destination', 'Created At', 'Created By', 'Updated At', 'Updated By', 'Version'],
   admin_info:     ['S.No', 'Admin Name', 'Phone Number', 'Email ID', 'Notifications', 'Password Hash', 'Created At', 'Created By', 'Updated At', 'Updated By'],
   keep_notes:     ['S.No', 'Note Content', 'Created By (Admin)', 'Created At', 'Updated By', 'Updated At'],
   activity_log:   ['S.No', 'Admin Name', 'Action', 'Module', 'Module Key', 'Record ID', 'Timestamp', 'Message'],
+  damaged_products:  ['S.No', 'Invoice Number', 'Item Name', 'Size', 'Quantity', 'Customer Name', 'Reason/Notes', 'Created At', 'Created By', 'Updated At', 'Updated By'],
+  inventory_history: ['S.No', 'Item Name', 'Size', 'Quantity Change', 'Affected Sheet', 'Handler (if Warehouse)', 'Transaction Type', 'Related Invoice Number', 'Resulting Balance', 'Created At', 'Created By', 'Notes'],
 };
 
 const MODULE_DISPLAY_NAMES: Record<string, string> = {
-  items:         'Items Management Sheet',
-  inventory:     'Inventory Management Sheet',
-  warehouse:     'Warehouse Management Sheet',
-  sales:         'Sales Management Sheet',
-  replacement:   'Replacement Management Sheet',
-  return_refund: 'Return/Refund Management Sheet',
-  admin_info:    'Admin Information Sheet',
-  keep_notes:    'Keep Notes Sheet',
-  activity_log:  'Activity Log Sheet',
+  items:             'Items Management Sheet',
+  inventory:         'Inventory Management Sheet',
+  warehouse:         'Warehouse Management Sheet',
+  sales:             'Sales Management Sheet',
+  replacement:       'Replacement Management Sheet',
+  return_refund:     'Return/Refund Management Sheet',
+  admin_info:        'Admin Information Sheet',
+  keep_notes:        'Keep Notes Sheet',
+  activity_log:      'Activity Log Sheet',
+  damaged_products:  'Damaged Products Management Sheet',
+  inventory_history: 'Inventory History Tracker Sheet',
 };
 
 const MODULE_TAB_NAMES: Record<string, string> = {
-  items:         'Items Management',
-  inventory:     'Inventory Management',
-  warehouse:     'Warehouse Management',
-  sales:         'Sales Management',
-  replacement:   'Replacement Management',
-  return_refund: 'Return Refund Management',
-  admin_info:    'Admin Information',
-  keep_notes:    'Keep Notes',
-  activity_log:  'Activity Log',
+  items:             'Items Management',
+  inventory:         'Inventory Management',
+  warehouse:         'Warehouse Management',
+  sales:             'Sales Management',
+  replacement:       'Replacement Management',
+  return_refund:     'Return Refund Management',
+  admin_info:        'Admin Information',
+  keep_notes:        'Keep Notes',
+  activity_log:      'Activity Log',
+  damaged_products:  'Damaged Products',
+  inventory_history: 'Inventory History',
 };
 
 export async function POST(request: Request) {
@@ -80,7 +86,7 @@ export async function POST(request: Request) {
     const sheets = await getSheetsClient();
 
     if (action === 'create') {
-      // ── Create a dedicated tab inside the shared Ficcado-System-Config sheet ─
+      // ── Create a dedicated tab inside the bootstrap system config sheet ─
       const { spreadsheetId } = await getBootstrapSpreadsheetId();
       const tabName = MODULE_TAB_NAMES[moduleKey] ?? moduleKey;
       const headers = MODULE_HEADERS[moduleKey];

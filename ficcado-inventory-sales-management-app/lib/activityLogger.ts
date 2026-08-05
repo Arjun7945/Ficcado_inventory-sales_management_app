@@ -4,8 +4,8 @@
  * Writes a human-readable activity log entry to the 'activity_log' module sheet.
  * Called by every Create/Update/Delete API handler.
  *
- * Log entry format (per spec Section 7.2):
- * "Rohith updated the Sales Management sheet on invoice number 'FIC-215' on 02/08/2026 at 5:14 PM."
+ * Log entry format (per spec Section 7.2 and Part 2 Section 2.8):
+ * Transaction-aware, human-readable entries with exact item, quantity, handler, and invoice details.
  */
 
 import { appendRows } from './google/moduleSheet';
@@ -13,11 +13,12 @@ import { appendRows } from './google/moduleSheet';
 export type ActivityAction = 'created' | 'updated' | 'deleted';
 
 export interface ActivityLogEntry {
-  adminName:   string;
-  action:      ActivityAction;
-  module:      string; // human-readable, e.g. "Sales Management"
-  recordId:    string; // e.g. invoice number, item name
-  moduleKey:   string; // e.g. 'sales'
+  adminName:      string;
+  action:         ActivityAction;
+  module:         string; // human-readable, e.g. "Sales Management"
+  recordId:       string; // e.g. invoice number, item name
+  moduleKey:      string; // e.g. 'sales'
+  customMessage?: string; // Optional detailed transaction-aware sentence
 }
 
 /**
@@ -38,9 +39,11 @@ function formatTimestamp(date: Date): string {
 
 /**
  * Build the human-readable activity log message.
- * Example: "Rohith updated the Sales Management sheet on invoice number 'FIC-215' on 02/08/2026 at 5:14 PM."
  */
 export function buildActivityMessage(entry: ActivityLogEntry, date: Date): string {
+  if (entry.customMessage) {
+    return entry.customMessage;
+  }
   const timestamp = formatTimestamp(date);
   return (
     `${entry.adminName} ${entry.action} the ${entry.module} sheet ` +
@@ -58,7 +61,7 @@ export async function logActivity(entry: ActivityLogEntry): Promise<void> {
     const message = buildActivityMessage(entry, now);
 
     await appendRows('activity_log', [[
-      '',                   // S.No — auto-fill row number later if needed
+      '',                   // S.No
       entry.adminName,
       entry.action,
       entry.module,
@@ -67,9 +70,7 @@ export async function logActivity(entry: ActivityLogEntry): Promise<void> {
       now.toISOString(),
       message,
     ]]);
-  } catch {
-    // Never block the main action due to logging failure.
-    // Log to server console for debugging.
-    console.error('[ActivityLogger] Failed to write activity log entry:', entry);
+  } catch (err) {
+    console.error('[ActivityLogger] Failed to write activity log entry:', entry, err);
   }
 }

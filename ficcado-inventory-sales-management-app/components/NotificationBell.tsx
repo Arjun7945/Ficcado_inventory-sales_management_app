@@ -143,7 +143,7 @@ export default function NotificationBell() {
           style={{
             position: 'absolute',
             top: 40,
-            right: 0,
+            left: 0,
             zIndex: 1000,
             background: 'var(--color-surface, #1a1f2e)',
             border: '1px solid var(--color-border)',

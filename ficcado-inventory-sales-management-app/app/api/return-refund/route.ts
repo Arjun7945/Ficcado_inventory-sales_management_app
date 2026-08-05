@@ -12,9 +12,21 @@ import { logActivity } from '@/lib/activityLogger';
 export const dynamic = 'force-dynamic';
 
 const COL = {
-  sno: 0, invoiceNumber: 1, verificationStatus: 2, refundStatus: 3,
-  refundAmount: 4, refundCompletedAt: 5, transactionId: 6, modeOfRefund: 7,
-  createdAt: 8, createdBy: 9, updatedAt: 10, updatedBy: 11, version: 12,
+  sno:                 0,
+  invoiceNumber:       1,
+  verificationStatus:  2,
+  refundStatus:        3,
+  refundAmount:        4,
+  refundCompletedAt:   5,
+  transactionId:       6,
+  modeOfRefund:        7,
+  disposition:         8,
+  restockDestination:  9,
+  createdAt:           10,
+  createdBy:           11,
+  updatedAt:           12,
+  updatedBy:           13,
+  version:             14,
 };
 
 export async function GET() {
@@ -32,6 +44,8 @@ export async function GET() {
       refundCompletedAt:  row[COL.refundCompletedAt]  ?? '',
       transactionId:      row[COL.transactionId]      ?? '',
       modeOfRefund:       row[COL.modeOfRefund]       ?? '',
+      disposition:        row[COL.disposition]        ?? '',
+      restockDestination: row[COL.restockDestination] ?? '',
       createdAt:          row[COL.createdAt]           ?? '',
       createdBy:          row[COL.createdBy]           ?? '',
       updatedAt:          row[COL.updatedAt]           ?? '',

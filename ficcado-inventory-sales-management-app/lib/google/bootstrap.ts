@@ -16,7 +16,7 @@
 
 import { getSheetsClient, getDriveClient } from './sheetsClient';
 
-export const BOOTSTRAP_SHEET_NAME = 'Ficcado-System-Config';
+export const BOOTSTRAP_SHEET_NAME = process.env.BOOTSTRAP_SHEET_NAME || process.env.NEXT_PUBLIC_BOOTSTRAP_SHEET_NAME || 'Ficcado-System-Config';
 export const APP_META_TAB = 'AppMeta';
 export const SHEET_CONFIG_TAB = 'SheetConfig';
 
@@ -192,14 +192,14 @@ export async function getBootstrapSpreadsheetId(): Promise<BootstrapResult> {
     if (msg.includes('quota') || msg.includes('permission') || createErr?.code === 403) {
       throw new Error(
         `Service Account storage quota limit: Google Service Accounts cannot create new files directly without a shared spreadsheet. ` +
-        `Please create a Google Sheet in your Google Drive named 'Ficcado-System-Config' (or any name) and share it with Editor access to: ` +
+        `Please create a Google Sheet in your Google Drive named '${BOOTSTRAP_SHEET_NAME}' (or any name) and share it with Editor access to: ` +
         `ficcado-sheets-service@ficcado-inventory-app.iam.gserviceaccount.com`
       );
     }
     throw createErr;
   }
 
-  throw new Error('Failed to create or locate Ficcado-System-Config spreadsheet.');
+  throw new Error(`Failed to create or locate ${BOOTSTRAP_SHEET_NAME} spreadsheet.`);
 }
 
 export function bustBootstrapCache(): void {

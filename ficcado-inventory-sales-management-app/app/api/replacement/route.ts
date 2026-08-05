@@ -12,9 +12,21 @@ import { logActivity } from '@/lib/activityLogger';
 export const dynamic = 'force-dynamic';
 
 const COL = {
-  sno: 0, invoiceNumber: 1, totalItems: 2, lastItems: 3, lastSizes: 4,
-  newItems: 5, newSizes: 6, invoiceStatus: 7, createdAt: 8, createdBy: 9,
-  updatedAt: 10, updatedBy: 11, version: 12,
+  sno:                 0,
+  invoiceNumber:       1,
+  totalItems:          2,
+  lastItems:           3,
+  lastSizes:           4,
+  newItems:            5,
+  newSizes:            6,
+  invoiceStatus:       7,
+  disposition:         8,
+  restockDestination:  9,
+  createdAt:           10,
+  createdBy:           11,
+  updatedAt:           12,
+  updatedBy:           13,
+  version:             14,
 };
 
 export async function GET() {
@@ -24,19 +36,21 @@ export async function GET() {
   try {
     const rows = await readAllRows('replacement');
     const replacements = rows.slice(1).map((row, i) => ({
-      rowIndex:      i + 2,
-      invoiceNumber: row[COL.invoiceNumber] ?? '',
-      totalItems:    row[COL.totalItems]    ?? '',
-      lastItems:     row[COL.lastItems]     ?? '',
-      lastSizes:     row[COL.lastSizes]     ?? '',
-      newItems:      row[COL.newItems]      ?? '',
-      newSizes:      row[COL.newSizes]      ?? '',
-      invoiceStatus: row[COL.invoiceStatus] ?? '',
-      createdAt:     row[COL.createdAt]     ?? '',
-      createdBy:     row[COL.createdBy]     ?? '',
-      updatedAt:     row[COL.updatedAt]     ?? '',
-      updatedBy:     row[COL.updatedBy]     ?? '',
-      version:       row[COL.version]       ?? '1',
+      rowIndex:           i + 2,
+      invoiceNumber:      row[COL.invoiceNumber]      ?? '',
+      totalItems:         row[COL.totalItems]         ?? '',
+      lastItems:          row[COL.lastItems]          ?? '',
+      lastSizes:          row[COL.lastSizes]          ?? '',
+      newItems:           row[COL.newItems]           ?? '',
+      newSizes:           row[COL.newSizes]           ?? '',
+      invoiceStatus:      row[COL.invoiceStatus]      ?? '',
+      disposition:        row[COL.disposition]        ?? '',
+      restockDestination: row[COL.restockDestination] ?? '',
+      createdAt:          row[COL.createdAt]          ?? '',
+      createdBy:          row[COL.createdBy]          ?? '',
+      updatedAt:          row[COL.updatedAt]          ?? '',
+      updatedBy:          row[COL.updatedBy]          ?? '',
+      version:            row[COL.version]            ?? '1',
     })).filter((r) => r.invoiceNumber);
     return Response.json({ replacements });
   } catch (err) {

@@ -9,9 +9,8 @@
  */
 
 import { requireSuperadmin } from '@/lib/auth';
-import { getBootstrapSpreadsheetId } from '@/lib/google/bootstrap';
+import { getBootstrapSpreadsheetId, APP_META_TAB, BOOTSTRAP_SHEET_NAME } from '@/lib/google/bootstrap';
 import { getSheetsClient } from '@/lib/google/sheetsClient';
-import { APP_META_TAB } from '@/lib/google/bootstrap';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,7 +41,7 @@ export async function POST() {
       return Response.json({
         success: false,
         message:
-          "Found the Ficcado-System-Config spreadsheet but its headers look wrong. " +
+          `Found the ${BOOTSTRAP_SHEET_NAME} spreadsheet but its headers look wrong. ` +
           "It may have been modified manually. Check the AppMeta tab.",
       });
     }
@@ -53,8 +52,8 @@ export async function POST() {
       status,
       message:
         status === 'created'
-          ? `Successfully created the Ficcado-System-Config spreadsheet (ID: ${spreadsheetId}).`
-          : `Successfully connected to the existing Ficcado-System-Config spreadsheet.`,
+          ? `Successfully created the ${BOOTSTRAP_SHEET_NAME} spreadsheet (ID: ${spreadsheetId}).`
+          : `Successfully connected to the existing ${BOOTSTRAP_SHEET_NAME} spreadsheet.`,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

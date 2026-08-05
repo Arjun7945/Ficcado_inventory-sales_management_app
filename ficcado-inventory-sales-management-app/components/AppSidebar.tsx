@@ -20,17 +20,20 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard',         href: '/dashboard',              icon: '⊞', section: 'OVERVIEW' },
-  { label: 'Items',             href: '/dashboard/items',        icon: '◈', section: 'MODULES' },
-  { label: 'Inventory',         href: '/dashboard/inventory',    icon: '▦' },
-  { label: 'Warehouse',         href: '/dashboard/warehouse',    icon: '⬡' },
-  { label: 'Sales',             href: '/dashboard/sales',        icon: '◆' },
-  { label: 'Replacements',      href: '/dashboard/replacement',  icon: '⟳' },
-  { label: 'Returns & Refunds', href: '/dashboard/return-refund', icon: '↩' },
-  { label: 'Activity Log',      href: '/dashboard/activity',     icon: '◉', section: 'RECORDS' },
-  { label: 'Keep Notes',        href: '/dashboard/notes',        icon: '✎' },
-  { label: 'Admin Control',     href: '/dashboard/admin',        icon: '⚙', section: 'ADMIN' },
-  { label: 'My Profile',        href: '/dashboard/profile',      icon: '👤' },
+  { label: 'Dashboard',         href: '/dashboard',                   icon: '⊞', section: 'OVERVIEW' },
+  { label: 'Items',             href: '/dashboard/items',             icon: '◈', section: 'MODULES' },
+  { label: 'Inventory',         href: '/dashboard/inventory',         icon: '▦' },
+  { label: 'Warehouse',         href: '/dashboard/warehouse',         icon: '⬡' },
+  { label: 'Reconciliation',    href: '/dashboard/reconciliation',    icon: '⚖' },
+  { label: 'Sales',             href: '/dashboard/sales',             icon: '◆' },
+  { label: 'Replacements',      href: '/dashboard/replacement',       icon: '⟳' },
+  { label: 'Returns & Refunds', href: '/dashboard/return-refund',     icon: '↩' },
+  { label: 'Damaged Products',  href: '/dashboard/damaged-products',  icon: '⚠️' },
+  { label: 'Activity Log',      href: '/dashboard/activity',          icon: '◉', section: 'RECORDS' },
+  { label: 'Inventory History', href: '/dashboard/inventory-history', icon: '📊' },
+  { label: 'Keep Notes',        href: '/dashboard/notes',             icon: '✎' },
+  { label: 'Admin Control',     href: '/dashboard/admin',             icon: '⚙', section: 'ADMIN' },
+  { label: 'My Profile',        href: '/dashboard/profile',           icon: '👤' },
 ];
 
 interface AppSidebarProps {
