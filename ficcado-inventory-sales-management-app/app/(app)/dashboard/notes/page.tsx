@@ -20,10 +20,11 @@ interface Note {
 }
 
 export default function NotesPage() {
-  const [notes, setNotes]     = useState<Note[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<{ message: string } | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [notes, setNotes]           = useState<Note[]>([]);
+  const [currentAdmin, setCurrentAdmin] = useState<any>(null);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState<{ message: string } | null>(null);
+  const [success, setSuccess]       = useState<string | null>(null);
 
   const [newNote, setNewNote] = useState('');
   const [saving, setSaving]   = useState(false);
@@ -37,10 +38,15 @@ export default function NotesPage() {
   async function loadNotes() {
     setLoading(true);
     try {
-      const res  = await fetch('/api/notes');
-      const data = await res.json();
-      if (data.notes) setNotes(data.notes);
-      else setError(parseApiError(data));
+      const [notesRes, meRes] = await Promise.all([
+        fetch('/api/notes').then((r) => r.json()),
+        fetch('/api/auth/me').then((r) => r.json()).catch(() => ({ admin: null })),
+      ]);
+
+      if (notesRes.notes) setNotes(notesRes.notes);
+      else setError(parseApiError(notesRes));
+
+      if (meRes.admin) setCurrentAdmin(meRes.admin);
     } catch { setError({ message: "Couldn't load notes." }); }
     finally { setLoading(false); }
   }
@@ -70,8 +76,9 @@ export default function NotesPage() {
     e.preventDefault();
     if (!editingNote) return;
     setEditSaving(true);
+    const targetId = editingNote.sno || editingNote.rowIndex;
     try {
-      const res  = await fetch(`/api/notes/${encodeURIComponent(editingNote.sno)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ noteContent: editContent }) });
+      const res  = await fetch(`/api/notes/${encodeURIComponent(String(targetId))}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ noteContent: editContent }) });
       const data = await res.json();
       if (!res.ok) { setError(parseApiError(data)); return; }
       setEditingNote(null);
@@ -83,9 +90,10 @@ export default function NotesPage() {
 
   async function handleDeleteNote(note: Note) {
     if (!confirm('Delete this note? This cannot be undone.')) return;
-    setDeleting(note.sno);
+    const targetId = note.sno || note.rowIndex;
+    setDeleting(String(targetId));
     try {
-      const res  = await fetch(`/api/notes/${encodeURIComponent(note.sno)}`, { method: 'DELETE' });
+      const res  = await fetch(`/api/notes/${encodeURIComponent(String(targetId))}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) { setError(parseApiError(data)); return; }
       setSuccess('Note deleted.');
@@ -94,15 +102,16 @@ export default function NotesPage() {
     finally { setDeleting(null); }
   }
 
-  if (loading) return <LoadingGecko size="full" label="Loading notes…" />;
-
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
       <div className="page-header">
         <div>
           <h1 className="page-title">Keep Notes</h1>
-          <div className="page-subtitle">Shared memo pad — visible to all admins</div>
+          <div className="page-subtitle">Shared memo pad — visible to all admins (edit/delete restricted to note creator)</div>
         </div>
+        <button className="btn btn-ghost btn-sm" onClick={loadNotes} disabled={loading}>
+          ⟳ Refresh
+        </button>
       </div>
 
       {error   && <ErrorMessage message={error.message}   variant="error"   onDismiss={() => setError(null)} />}
@@ -127,7 +136,11 @@ export default function NotesPage() {
       </form>
 
       {/* Notes Feed */}
-      {notes.length === 0 ? (
+      {loading ? (
+        <div className="card" style={{ padding: 48, textAlign: 'center' }}>
+          <LoadingGecko label="Fetching team notes…" />
+        </div>
+      ) : notes.length === 0 ? (
         <div className="empty-state">
           <div style={{ fontSize: 28 }}>✎</div>
           <div className="empty-state-title">No notes yet</div>
@@ -135,48 +148,62 @@ export default function NotesPage() {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {notes.map((note) => (
-            <div key={note.sno} className="card" style={{ padding: '14px 16px' }}>
-              {editingNote?.sno === note.sno ? (
-                <form onSubmit={handleEditNote}>
-                  <textarea
-                    className="form-input"
-                    value={editContent}
-                    onChange={(e) => setEditContent(e.target.value)}
-                    rows={3}
-                    autoFocus
-                    style={{ resize: 'vertical', marginBottom: 10, fontSize: 14, fontFamily: 'inherit' }}
-                  />
-                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditingNote(null)}>Cancel</button>
-                    <button type="submit" className="btn btn-primary btn-sm" disabled={editSaving}>
-                      {editSaving ? <LoadingGecko size="inline" label="Saving…" /> : 'Save'}
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <>
-                  <div style={{ fontSize: 14, lineHeight: 1.7, whiteSpace: 'pre-wrap', marginBottom: 10 }}>
-                    {note.content}
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>
-                      {note.createdBy} · {note.createdAt ? new Date(note.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
-                      {note.updatedBy && note.updatedBy !== note.createdBy && (
-                        <span style={{ marginLeft: 8 }}>· Updated by {note.updatedBy}</span>
-                      )}
-                    </div>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button className="btn btn-ghost btn-sm" onClick={() => startEdit(note)}>Edit</button>
-                      <button className="btn btn-danger btn-sm" onClick={() => handleDeleteNote(note)} disabled={deleting === note.sno}>
-                        {deleting === note.sno ? '…' : 'Delete'}
+          {notes.map((note, idx) => {
+            const isCreator = currentAdmin && (
+              (currentAdmin.name || '').trim().toLowerCase() === (note.createdBy || '').trim().toLowerCase() ||
+              currentAdmin.role === 'superadmin'
+            );
+
+            const noteKey = note.sno || note.rowIndex || idx;
+            const targetId = note.sno || note.rowIndex;
+            const editingTargetId = editingNote ? (editingNote.sno || editingNote.rowIndex) : null;
+            const isEditing = Boolean(editingTargetId && targetId && String(editingTargetId) === String(targetId));
+
+            return (
+              <div key={noteKey} className="card" style={{ padding: '14px 16px' }}>
+                {isEditing ? (
+                  <form onSubmit={handleEditNote}>
+                    <textarea
+                      className="form-input"
+                      value={editContent}
+                      onChange={(e) => setEditContent(e.target.value)}
+                      rows={3}
+                      autoFocus
+                      style={{ resize: 'vertical', marginBottom: 10, fontSize: 14, fontFamily: 'inherit' }}
+                    />
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditingNote(null)}>Cancel</button>
+                      <button type="submit" className="btn btn-primary btn-sm" disabled={editSaving}>
+                        {editSaving ? <LoadingGecko size="inline" label="Saving…" /> : 'Save'}
                       </button>
                     </div>
-                  </div>
-                </>
-              )}
-            </div>
-          ))}
+                  </form>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 14, lineHeight: 1.7, whiteSpace: 'pre-wrap', marginBottom: 10 }}>
+                      {note.content}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>
+                        {note.createdBy} · {note.createdAt ? new Date(note.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                        {note.updatedBy && note.updatedBy !== note.createdBy && (
+                          <span style={{ marginLeft: 8 }}>· Updated by {note.updatedBy}</span>
+                        )}
+                      </div>
+                      {isCreator && (
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button className="btn btn-ghost btn-sm" onClick={() => startEdit(note)}>Edit</button>
+                          <button className="btn btn-danger btn-sm" onClick={() => handleDeleteNote(note)} disabled={deleting === String(targetId)}>
+                            {deleting === String(targetId) ? '…' : 'Delete'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

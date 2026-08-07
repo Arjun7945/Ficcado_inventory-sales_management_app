@@ -15,7 +15,7 @@
 import bcrypt from 'bcryptjs';
 import { setAppMeta, getAppMeta } from '@/lib/google/appMeta';
 import { validate, ClaimSchema } from '@/lib/validation';
-import { signJwt, buildSessionCookie, SESSION_COOKIE } from '@/lib/auth';
+import { signJwt, buildSessionCookie } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 

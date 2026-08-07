@@ -21,6 +21,8 @@ export const APP_META_TAB = 'AppMeta';
 export const SHEET_CONFIG_TAB = 'SheetConfig';
 
 let _cachedSpreadsheetId: string | null = null;
+let _tabsInitialized = false;
+let _pendingBootstrapPromise: Promise<BootstrapResult> | null = null;
 
 export type BootstrapStatus = 'found' | 'created';
 
@@ -96,114 +98,141 @@ async function initializeBootstrapTabs(spreadsheetId: string): Promise<void> {
 
 /**
  * Locate or initialize the Ficcado-System-Config spreadsheet.
+ * Uses in-flight promise coalescing (single-flight) to prevent concurrent
+ * requests from firing duplicate Google Drive search & initialization calls.
  */
 export async function getBootstrapSpreadsheetId(): Promise<BootstrapResult> {
-  if (_cachedSpreadsheetId) {
+  if (_cachedSpreadsheetId && _tabsInitialized) {
     return { spreadsheetId: _cachedSpreadsheetId, status: 'found' };
   }
 
-  // 1. Check env var fallback if present
-  if (process.env.BOOTSTRAP_SPREADSHEET_ID) {
-    _cachedSpreadsheetId = process.env.BOOTSTRAP_SPREADSHEET_ID;
-    await initializeBootstrapTabs(_cachedSpreadsheetId);
-    return { spreadsheetId: _cachedSpreadsheetId, status: 'found' };
+  if (_pendingBootstrapPromise) {
+    return _pendingBootstrapPromise;
   }
 
-  const drive = await getDriveClient();
+  _pendingBootstrapPromise = (async () => {
+    try {
+      if (_cachedSpreadsheetId) {
+        if (!_tabsInitialized) {
+          await initializeBootstrapTabs(_cachedSpreadsheetId);
+          _tabsInitialized = true;
+        }
+        return { spreadsheetId: _cachedSpreadsheetId, status: 'found' };
+      }
 
-  // 2. Search Google Drive for an existing spreadsheet shared with service account
-  try {
-    const searchRes = await drive.files.list({
-      q: `mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`,
-      fields: 'files(id, name)',
-      spaces: 'drive',
-      pageSize: 20,
-    });
+      // 1. Check env var fallback if present
+      if (process.env.BOOTSTRAP_SPREADSHEET_ID) {
+        _cachedSpreadsheetId = process.env.BOOTSTRAP_SPREADSHEET_ID;
+        await initializeBootstrapTabs(_cachedSpreadsheetId);
+        _tabsInitialized = true;
+        return { spreadsheetId: _cachedSpreadsheetId, status: 'found' };
+      }
 
-    const files = searchRes.data.files ?? [];
-    const targetFile = files.find((f) => f.name === BOOTSTRAP_SHEET_NAME) || files[0];
+      const drive = await getDriveClient();
 
-    if (targetFile && targetFile.id) {
-      _cachedSpreadsheetId = targetFile.id;
-      await initializeBootstrapTabs(_cachedSpreadsheetId);
-      return { spreadsheetId: _cachedSpreadsheetId, status: 'found' };
-    }
-  } catch (err) {
-    console.warn('[bootstrap] Drive search warning:', err instanceof Error ? err.message : err);
-  }
+      // 2. Search Google Drive for an existing spreadsheet shared with service account
+      try {
+        const searchRes = await drive.files.list({
+          q: `mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`,
+          fields: 'files(id, name)',
+          spaces: 'drive',
+          pageSize: 20,
+        });
 
-  // 3. Not found — attempt auto-creation via Sheets API
-  const sheets = await getSheetsClient();
-  try {
-    const createRes = await sheets.spreadsheets.create({
-      requestBody: {
-        properties: { title: BOOTSTRAP_SHEET_NAME },
-        sheets: [
-          {
-            properties: { title: APP_META_TAB, index: 0 },
-            data: [
+        const files = searchRes.data.files ?? [];
+        const targetFile = files.find((f) => f.name === BOOTSTRAP_SHEET_NAME) || files[0];
+
+        if (targetFile && targetFile.id) {
+          _cachedSpreadsheetId = targetFile.id;
+          await initializeBootstrapTabs(_cachedSpreadsheetId);
+          _tabsInitialized = true;
+          return { spreadsheetId: _cachedSpreadsheetId, status: 'found' };
+        }
+      } catch (err) {
+        console.warn('[bootstrap] Drive search warning:', err instanceof Error ? err.message : err);
+      }
+
+      // 3. Not found — attempt auto-creation via Sheets API
+      const sheets = await getSheetsClient();
+      try {
+        const createRes = await sheets.spreadsheets.create({
+          requestBody: {
+            properties: { title: BOOTSTRAP_SHEET_NAME },
+            sheets: [
               {
-                startRow: 0,
-                startColumn: 0,
-                rowData: [
+                properties: { title: APP_META_TAB, index: 0 },
+                data: [
                   {
-                    values: [
-                      { userEnteredValue: { stringValue: 'key' } },
-                      { userEnteredValue: { stringValue: 'value' } },
-                      { userEnteredValue: { stringValue: 'updated_at' } },
+                    startRow: 0,
+                    startColumn: 0,
+                    rowData: [
+                      {
+                        values: [
+                          { userEnteredValue: { stringValue: 'key' } },
+                          { userEnteredValue: { stringValue: 'value' } },
+                          { userEnteredValue: { stringValue: 'updated_at' } },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+              {
+                properties: { title: SHEET_CONFIG_TAB, index: 1 },
+                data: [
+                  {
+                    startRow: 0,
+                    startColumn: 0,
+                    rowData: [
+                      {
+                        values: [
+                          { userEnteredValue: { stringValue: 'module_key' } },
+                          { userEnteredValue: { stringValue: 'display_name' } },
+                          { userEnteredValue: { stringValue: 'spreadsheet_id' } },
+                          { userEnteredValue: { stringValue: 'tab_name' } },
+                          { userEnteredValue: { stringValue: 'updated_at' } },
+                          { userEnteredValue: { stringValue: 'updated_by' } },
+                        ],
+                      },
                     ],
                   },
                 ],
               },
             ],
           },
-          {
-            properties: { title: SHEET_CONFIG_TAB, index: 1 },
-            data: [
-              {
-                startRow: 0,
-                startColumn: 0,
-                rowData: [
-                  {
-                    values: [
-                      { userEnteredValue: { stringValue: 'module_key' } },
-                      { userEnteredValue: { stringValue: 'display_name' } },
-                      { userEnteredValue: { stringValue: 'spreadsheet_id' } },
-                      { userEnteredValue: { stringValue: 'tab_name' } },
-                      { userEnteredValue: { stringValue: 'updated_at' } },
-                      { userEnteredValue: { stringValue: 'updated_by' } },
-                    ],
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-    });
+        });
 
-    const newId = createRes.data.spreadsheetId;
-    if (newId) {
-      _cachedSpreadsheetId = newId;
-      return { spreadsheetId: newId, status: 'created' };
-    }
-  } catch (createErr: any) {
-    const msg = createErr?.message || '';
-    if (msg.includes('quota') || msg.includes('permission') || createErr?.code === 403) {
-      throw new Error(
-        `Service Account storage quota limit: Google Service Accounts cannot create new files directly without a shared spreadsheet. ` +
-        `Please create a Google Sheet in your Google Drive named '${BOOTSTRAP_SHEET_NAME}' (or any name) and share it with Editor access to: ` +
-        `ficcado-sheets-service@ficcado-inventory-app.iam.gserviceaccount.com`
-      );
-    }
-    throw createErr;
-  }
+        const newId = createRes.data.spreadsheetId;
+        if (newId) {
+          _cachedSpreadsheetId = newId;
+          _tabsInitialized = true;
+          return { spreadsheetId: newId, status: 'created' };
+        }
+      } catch (createErr: any) {
+        const msg = createErr?.message || '';
+        if (msg.includes('quota') || msg.includes('permission') || createErr?.code === 403) {
+          throw new Error(
+            `Service Account storage quota limit: Google Service Accounts cannot create new files directly without a shared spreadsheet. ` +
+            `Please create a Google Sheet in your Google Drive named '${BOOTSTRAP_SHEET_NAME}' (or any name) and share it with Editor access to: ` +
+            `ficcado-sheets-service@ficcado-inventory-app.iam.gserviceaccount.com`
+          );
+        }
+        throw createErr;
+      }
 
-  throw new Error(`Failed to create or locate ${BOOTSTRAP_SHEET_NAME} spreadsheet.`);
+      throw new Error(`Failed to create or locate ${BOOTSTRAP_SHEET_NAME} spreadsheet.`);
+    } finally {
+      _pendingBootstrapPromise = null;
+    }
+  })();
+
+  return _pendingBootstrapPromise;
 }
 
 export function bustBootstrapCache(): void {
   _cachedSpreadsheetId = null;
+  _tabsInitialized = false;
+  _pendingBootstrapPromise = null;
 }
 
 /**

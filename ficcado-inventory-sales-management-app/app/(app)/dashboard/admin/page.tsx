@@ -17,6 +17,9 @@ interface AdminUser {
   email: string;
   notifications: string;
   createdAt: string;
+  salesCreated?: number;
+  salesClosed?: number;
+  revenueGenerated?: number;
 }
 
 interface SheetConfigEntry {
@@ -27,12 +30,17 @@ interface SheetConfigEntry {
 }
 
 const REPORT_MODULES = [
-  { key: 'items',         label: 'Items Management' },
-  { key: 'inventory',     label: 'Inventory Management' },
-  { key: 'warehouse',     label: 'Warehouse Management' },
-  { key: 'sales',         label: 'Sales Management' },
-  { key: 'replacement',   label: 'Replacement Management' },
-  { key: 'return_refund', label: 'Return & Refund Management' },
+  { key: 'items',             label: 'Items Management' },
+  { key: 'inventory',         label: 'Inventory Management' },
+  { key: 'warehouse',         label: 'Warehouse Management' },
+  { key: 'sales',             label: 'Sales Management' },
+  { key: 'replacement',       label: 'Replacement Management' },
+  { key: 'return_refund',     label: 'Return & Refund Management' },
+  { key: 'customer_info',     label: 'Customer Information' },
+  { key: 'inventory_history', label: 'Inventory History' },
+  { key: 'damaged_products',  label: 'Damaged Products' },
+  { key: 'notes',             label: 'Notes Management' },
+  { key: 'activity_logs',     label: 'Activity Logs' },
 ];
 
 export default function AdminControlPage() {
@@ -51,6 +59,55 @@ export default function AdminControlPage() {
   const [password, setPassword]             = useState('');
   const [submittingAdmin, setSubmittingAdmin] = useState(false);
   const [adminFormError, setAdminFormError] = useState<string | null>(null);
+
+  // View/Edit Admin Modal
+  const [editingAdmin, setEditingAdmin]       = useState<AdminUser | null>(null);
+  const [editAdminName, setEditAdminName]     = useState('');
+  const [editPhone, setEditPhone]             = useState('');
+  const [editEmail, setEditEmail]             = useState('');
+  const [editNotifications, setEditNotifications] = useState('Enabled');
+  const [savingAdminEdit, setSavingAdminEdit] = useState(false);
+
+  function openEditAdminModal(adm: AdminUser) {
+    setEditingAdmin(adm);
+    setEditAdminName(adm.adminName);
+    setEditPhone(adm.phone);
+    setEditEmail(adm.email);
+    setEditNotifications(adm.notifications || 'Enabled');
+    setAdminFormError(null);
+  }
+
+  async function handleSaveAdminEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingAdmin) return;
+    setAdminFormError(null);
+    if (!editAdminName.trim()) { setAdminFormError('Admin name is required'); return; }
+    if (!/^\d{10}$/.test(editPhone)) { setAdminFormError('Enter a 10-digit phone number'); return; }
+    if (!editEmail.includes('@')) { setAdminFormError('Enter a valid email address'); return; }
+
+    setSavingAdminEdit(true);
+    try {
+      const res = await fetch(`/api/admins/${encodeURIComponent(editingAdmin.adminName)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminName: editAdminName,
+          phoneNumber: editPhone,
+          emailId: editEmail,
+          notifications: editNotifications,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setAdminFormError(data.error || 'Failed to update admin details'); return; }
+      setSuccess(`Admin '${editAdminName}' details updated.`);
+      setEditingAdmin(null);
+      loadData();
+    } catch {
+      setAdminFormError("Couldn't save admin changes.");
+    } finally {
+      setSavingAdminEdit(false);
+    }
+  }
 
   // Sheet config editing
   const [editingSheet, setEditingSheet]   = useState<SheetConfigEntry | null>(null);
@@ -98,7 +155,7 @@ export default function AdminControlPage() {
     try {
       const res  = await fetch('/api/admins', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ adminName, phoneNumber, emailId, password, notifications: 'Enabled' }) });
       const data = await res.json();
-      if (!res.ok) { setAdminFormError(data.error || 'Failed to create admin'); return; }
+      if (!res.ok) { setAdminFormError(data.detail ? `${data.error} — ${data.detail}` : (data.error || 'Failed to create admin')); return; }
       setShowAdminModal(false);
       setAdminName(''); setPhoneNumber(''); setEmailId(''); setPassword('');
       setSuccess('Admin account created successfully.');
@@ -216,8 +273,6 @@ export default function AdminControlPage() {
     finally { setSendTestEmail(false); }
   }
 
-  if (loading) return <LoadingGecko size="full" label="Loading Admin Control Centre…" />;
-
   return (
     <div>
       <div className="page-header">
@@ -225,9 +280,14 @@ export default function AdminControlPage() {
           <h1 className="page-title">Admin Control Centre</h1>
           <div className="page-subtitle">Manage administrators, Google Sheet mappings, and reports</div>
         </div>
-        {activeTab === 'admins' && (
-          <button className="btn btn-primary" onClick={() => setShowAdminModal(true)}>+ Add Admin</button>
-        )}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <button className="btn btn-ghost btn-sm" onClick={loadData} disabled={loading}>
+            ⟳ Refresh
+          </button>
+          {activeTab === 'admins' && (
+            <button className="btn btn-primary" onClick={() => setShowAdminModal(true)}>+ Add Admin</button>
+          )}
+        </div>
       </div>
 
       {error   && <ErrorMessage message={error.message}   variant="error"   onDismiss={() => setError(null)} />}
@@ -245,7 +305,11 @@ export default function AdminControlPage() {
       {/* ADMINS TAB */}
       {activeTab === 'admins' && (
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          {admins.length === 0 ? (
+          {loading ? (
+            <div style={{ padding: 48, textAlign: 'center' }}>
+              <LoadingGecko label="Loading admin accounts directory…" />
+            </div>
+          ) : admins.length === 0 ? (
             <div className="empty-state">
               <div style={{ fontSize: 28 }}>⚙</div>
               <div className="empty-state-title">No additional admin accounts</div>
@@ -259,8 +323,10 @@ export default function AdminControlPage() {
                     <th>Admin Name</th>
                     <th>Email ID</th>
                     <th>Phone Number</th>
+                    <th style={{ textAlign: 'center' }}>Sales Created</th>
+                    <th style={{ textAlign: 'center' }}>Sales Closed</th>
+                    <th style={{ textAlign: 'right' }}>Revenue Generated</th>
                     <th>Notifications</th>
-                    <th>Date Added</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -270,18 +336,29 @@ export default function AdminControlPage() {
                       <td style={{ fontWeight: 600 }}>{adm.adminName}</td>
                       <td>{adm.email}</td>
                       <td>{adm.phone}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        <span className="badge badge-info">{adm.salesCreated ?? 0}</span>
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <span className="badge badge-success">{adm.salesClosed ?? 0}</span>
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--color-brand-primary)' }} className="tabular-nums">
+                        ₹{(adm.revenueGenerated ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </td>
                       <td>
                         <span className={`badge ${adm.notifications === 'Enabled' ? 'badge-success' : 'badge-neutral'}`}>
                           {adm.notifications}
                         </span>
                       </td>
-                      <td style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>
-                        {adm.createdAt ? new Date(adm.createdAt).toLocaleDateString('en-IN') : '—'}
-                      </td>
                       <td>
-                        <button className="btn btn-danger btn-sm" onClick={() => handleDeleteAdmin(adm)}>
-                          Delete
-                        </button>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button className="btn btn-secondary btn-sm" onClick={() => openEditAdminModal(adm)}>
+                            View / Edit
+                          </button>
+                          <button className="btn btn-danger btn-sm" onClick={() => handleDeleteAdmin(adm)}>
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -455,6 +532,73 @@ export default function AdminControlPage() {
                 <button type="button" className="btn btn-ghost" onClick={() => setShowAdminModal(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={submittingAdmin}>
                   {submittingAdmin ? <LoadingGecko size="inline" label="Creating…" /> : 'Create Account'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW / EDIT ADMIN MODAL */}
+      {editingAdmin && (
+        <div className="modal-overlay" onClick={() => setEditingAdmin(null)}>
+          <div className="modal" style={{ maxWidth: 540 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="modal-title">Admin Profile & Performance Details</h2>
+              <button className="modal-close" onClick={() => setEditingAdmin(null)}>×</button>
+            </div>
+
+            <form onSubmit={handleSaveAdminEdit}>
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {adminFormError && <ErrorMessage message={adminFormError} variant="error" onDismiss={() => setAdminFormError(null)} />}
+
+                {/* Performance Stats Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, background: 'var(--color-bg)', padding: 12, borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)' }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 11, color: 'var(--color-ink-muted)', fontWeight: 600 }}>SALES CREATED</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-brand-primary)' }}>{editingAdmin.salesCreated ?? 0}</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 11, color: 'var(--color-ink-muted)', fontWeight: 600 }}>SALES CLOSED</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-success)' }}>{editingAdmin.salesClosed ?? 0}</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 11, color: 'var(--color-ink-muted)', fontWeight: 600 }}>TOTAL REVENUE</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--color-ink)' }} className="tabular-nums">
+                      ₹{(editingAdmin.revenueGenerated ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 0 })}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Full Name</label>
+                  <input type="text" className="form-input" value={editAdminName} onChange={(e) => setEditAdminName(e.target.value)} required />
+                </div>
+
+                <div className="grid-form-2">
+                  <div className="form-group">
+                    <label className="form-label">Phone Number</label>
+                    <input type="tel" className="form-input" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} required placeholder="10 digits" />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Email Address</label>
+                    <input type="email" className="form-input" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} required />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Email Notifications</label>
+                  <select className="form-select" value={editNotifications} onChange={(e) => setEditNotifications(e.target.value)}>
+                    <option value="Enabled">Enabled — Receive daily XLSX reports by email</option>
+                    <option value="Disabled">Disabled — Do not receive email reports</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="modal-footer">
+                <button type="button" className="btn btn-ghost" onClick={() => setEditingAdmin(null)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={savingAdminEdit}>
+                  {savingAdminEdit ? <LoadingGecko size="inline" label="Saving…" /> : 'Save Admin Details'}
                 </button>
               </div>
             </form>

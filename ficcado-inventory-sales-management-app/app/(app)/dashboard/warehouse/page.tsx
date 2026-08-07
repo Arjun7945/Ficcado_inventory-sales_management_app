@@ -14,58 +14,58 @@ import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
 
 interface WarehouseAllocationRow {
-  rowIndex:  number;
-  location:  string;
-  handler:   string;
-  itemName:  string;
-  size:      string;
-  qty:       number;
+  rowIndex: number;
+  location: string;
+  handler: string;
+  itemName: string;
+  size: string;
+  qty: number;
   updatedAt: string;
 }
 
 interface HandlerStockBox {
-  id:         string; // `${location}:${handler}`
-  location:   string;
-  handler:    string;
-  isAdmin:    boolean;
+  id: string; // `${location}:${handler}`
+  location: string;
+  handler: string;
+  isAdmin: boolean;
   totalItems: number;
-  totalPieces:number;
+  totalPieces: number;
   allocations: { itemName: string; size: string; qty: number; rowIndex: number }[];
 }
 
 interface InventoryStockItem {
-  itemName:     string;
-  size:         string;
-  totalQty:     number;
+  itemName: string;
+  size: string;
+  totalQty: number;
   allocatedQty: number;
   remainingQty: number;
 }
 
 export default function WarehousePage() {
-  const [warehouseRows, setWarehouseRows]       = useState<WarehouseAllocationRow[]>([]);
-  const [admins, setAdmins]                     = useState<string[]>([]);
-  const [inventoryStock, setInventoryStock]     = useState<InventoryStockItem[]>([]);
-  const [loading, setLoading]                   = useState(true);
-  const [error, setError]                       = useState<{ message: string } | null>(null);
-  const [success, setSuccess]                   = useState<string | null>(null);
-  const [search, setSearch]                     = useState('');
+  const [warehouseRows, setWarehouseRows] = useState<WarehouseAllocationRow[]>([]);
+  const [admins, setAdmins] = useState<string[]>([]);
+  const [inventoryStock, setInventoryStock] = useState<InventoryStockItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<{ message: string } | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   // Modal State (Create & Edit)
-  const [showModal, setShowModal]               = useState(false);
+  const [showModal, setShowModal] = useState(false);
   const [editingHandlerBox, setEditingHandlerBox] = useState<HandlerStockBox | null>(null);
-  const [locationInput, setLocationInput]       = useState('');
-  const [handlerType, setHandlerType]           = useState<'admin' | 'custom'>('admin');
-  const [selectedAdmin, setSelectedAdmin]       = useState('');
-  const [customHandler, setCustomHandler]       = useState('');
+  const [locationInput, setLocationInput] = useState('');
+  const [handlerType, setHandlerType] = useState<'admin' | 'custom'>('admin');
+  const [selectedAdmin, setSelectedAdmin] = useState('');
+  const [customHandler, setCustomHandler] = useState('');
 
   // Map of selected items: itemName -> array of size strings
   const [selectedItemsMap, setSelectedItemsMap] = useState<Record<string, string[]>>({});
   // Map of item+size quantities: `${itemName}:${size}` -> qty
-  const [qtyMap, setQtyMap]                     = useState<Record<string, number>>({});
+  const [qtyMap, setQtyMap] = useState<Record<string, number>>({});
 
-  const [submitting, setSubmitting]             = useState(false);
-  const [deletingId, setDeletingId]             = useState<string | null>(null);
-  const [modalError, setModalError]             = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
 
   async function loadData() {
     setLoading(true);
@@ -96,19 +96,19 @@ export default function WarehousePage() {
       const key = `${row.location.trim().toLowerCase()}:${row.handler.trim().toLowerCase()}`;
       if (!map[key]) {
         map[key] = {
-          id:          key,
-          location:    row.location.trim(),
-          handler:     row.handler.trim(),
-          isAdmin:     admins.includes(row.handler.trim()),
-          totalItems:  0,
+          id: key,
+          location: row.location.trim(),
+          handler: row.handler.trim(),
+          isAdmin: admins.includes(row.handler.trim()),
+          totalItems: 0,
           totalPieces: 0,
           allocations: [],
         };
       }
       map[key].allocations.push({
         itemName: row.itemName,
-        size:     row.size,
-        qty:      row.qty,
+        size: row.size,
+        qty: row.qty,
         rowIndex: row.rowIndex,
       });
       map[key].totalPieces += row.qty;
@@ -229,10 +229,10 @@ export default function WarehousePage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             originalLocation: editingHandlerBox.location,
-            originalHandler:  editingHandlerBox.handler,
-            newLocation:      finalLocation,
-            newHandler:       finalHandler,
-            items:            itemsToSave,
+            originalHandler: editingHandlerBox.handler,
+            newLocation: finalLocation,
+            newHandler: finalHandler,
+            items: itemsToSave,
           }),
         });
       } else {
@@ -242,8 +242,8 @@ export default function WarehousePage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             warehouseLocation: finalLocation,
-            handlerName:       finalHandler,
-            items:             itemsToSave,
+            handlerName: finalHandler,
+            items: itemsToSave,
           }),
         });
       }
@@ -304,8 +304,6 @@ export default function WarehousePage() {
     }),
   }));
 
-  if (loading) return <LoadingGecko size="full" label="Loading warehouse handlers stock…" />;
-
   return (
     <div>
       <div className="page-header">
@@ -314,6 +312,9 @@ export default function WarehousePage() {
           <div className="page-subtitle">Track stock allocations by Handler & Location — {handlerBoxes.length} Handler Box{handlerBoxes.length !== 1 ? 'es' : ''}</div>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <button className="btn btn-ghost btn-sm" onClick={loadData} disabled={loading}>
+            ⟳ Refresh
+          </button>
           <Link href="/dashboard/reconciliation" className="btn btn-secondary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             ⚖ Dedicated Reconciliation Page →
           </Link>
@@ -321,8 +322,8 @@ export default function WarehousePage() {
         </div>
       </div>
 
-      {error   && <ErrorMessage message={error.message}   variant="error"   onDismiss={() => setError(null)} />}
-      {success && <ErrorMessage message={success}          variant="success" onDismiss={() => setSuccess(null)} />}
+      {error && <ErrorMessage message={error.message} variant="error" onDismiss={() => setError(null)} />}
+      {success && <ErrorMessage message={success} variant="success" onDismiss={() => setSuccess(null)} />}
 
       {/* Search Bar */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
@@ -335,11 +336,14 @@ export default function WarehousePage() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <button className="btn btn-ghost btn-sm" onClick={loadData}>↻ Refresh</button>
       </div>
 
       {/* HANDLER STOCK BOX CARDS GRID */}
-      {filteredBoxes.length === 0 ? (
+      {loading ? (
+        <div className="card" style={{ padding: 48, textAlign: 'center' }}>
+          <LoadingGecko label="Loading warehouse handler allocations…" />
+        </div>
+      ) : filteredBoxes.length === 0 ? (
         <div className="empty-state">
           <div style={{ fontSize: 28 }}>⬡</div>
           <div className="empty-state-title">No handler stock boxes found</div>

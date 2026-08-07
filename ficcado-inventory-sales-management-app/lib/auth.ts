@@ -10,6 +10,7 @@
 
 import jwt from 'jsonwebtoken';
 import { cookies } from 'next/headers';
+import { readAllRows } from './google/moduleSheet';
 
 export const SESSION_COOKIE = 'ficcado_session';
 export const SESSION_DURATION = '12h';
@@ -52,6 +53,37 @@ export function verifyJwt(token: string): SessionAdmin | null {
   }
 }
 
+export async function resolveAdminName(sessionAdmin: SessionAdmin): Promise<SessionAdmin> {
+  if (!sessionAdmin) return sessionAdmin;
+
+  // Regular admins logged in with their own account always use their own name directly
+  if (sessionAdmin.role === 'admin' || (sessionAdmin.name && sessionAdmin.name.toLowerCase() !== 'superadmin')) {
+    return sessionAdmin;
+  }
+
+  // If superadmin is logged in, try to match by email in admin_info if an email exists
+  if (sessionAdmin.email) {
+    try {
+      const adminRows = await readAllRows('admin_info');
+      if (adminRows.length > 1) {
+        const match = adminRows.slice(1).find(
+          (r) => (r[3] ?? '').trim().toLowerCase() === sessionAdmin.email.trim().toLowerCase()
+        );
+        if (match && match[1] && match[1].trim()) {
+          return {
+            ...sessionAdmin,
+            name: match[1].trim(),
+          };
+        }
+      }
+    } catch {
+      // Fallback to original sessionAdmin
+    }
+  }
+
+  return sessionAdmin;
+}
+
 /**
  * Read the session cookie and return the authenticated admin.
  * Returns null if not authenticated or session is expired/invalid.
@@ -76,7 +108,7 @@ export async function requireAuth(): Promise<SessionAdmin> {
       { status: 401, headers: { 'Content-Type': 'application/json' } }
     );
   }
-  return admin;
+  return await resolveAdminName(admin);
 }
 
 /**

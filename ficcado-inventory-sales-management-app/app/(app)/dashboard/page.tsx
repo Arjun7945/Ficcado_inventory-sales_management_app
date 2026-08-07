@@ -9,8 +9,6 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import LoadingGecko from '@/components/LoadingGecko';
-import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
 
 interface DashboardStats {
   todaySales:       number;
@@ -33,7 +31,6 @@ const MODULE_CARDS = [
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<{ message: string } | null>(null);
 
   useEffect(() => {
     fetch('/api/dashboard/stats')
@@ -46,8 +43,6 @@ export default function DashboardPage() {
       .catch(() => setStats({ todaySales: 0, todayRevenue: 0, totalItems: 0, lowStockCount: 0, pendingReplacement: 0, pendingRefunds: 0 }))
       .finally(() => setLoading(false));
   }, []);
-
-  if (loading) return <LoadingGecko size="full" label="Loading dashboard…" />;
 
   const today = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
@@ -66,12 +61,12 @@ export default function DashboardPage() {
 
       {/* Stats row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginBottom: 28 }}>
-        <StatCard label="Sales Today"          value={String(stats?.todaySales ?? 0)}     accent="primary" />
-        <StatCard label="Revenue Today"        value={`₹${(stats?.todayRevenue ?? 0).toLocaleString('en-IN')}`} accent="primary" />
-        <StatCard label="Total Items"          value={String(stats?.totalItems ?? 0)}     accent="neutral" />
-        <StatCard label="Low Stock Alerts"     value={String(stats?.lowStockCount ?? 0)}  accent={stats?.lowStockCount ? 'warning' : 'neutral'} />
-        <StatCard label="Pending Replacements" value={String(stats?.pendingReplacement ?? 0)} accent={stats?.pendingReplacement ? 'warning' : 'neutral'} />
-        <StatCard label="Pending Refunds"      value={String(stats?.pendingRefunds ?? 0)} accent={stats?.pendingRefunds ? 'error' : 'neutral'} />
+        <StatCard label="Sales Today"          value={String(stats?.todaySales ?? 0)}     accent="primary" loading={loading} />
+        <StatCard label="Revenue Today"        value={`₹${(stats?.todayRevenue ?? 0).toLocaleString('en-IN')}`} accent="primary" loading={loading} />
+        <StatCard label="Total Items"          value={String(stats?.totalItems ?? 0)}     accent="neutral" loading={loading} />
+        <StatCard label="Low Stock Alerts"     value={String(stats?.lowStockCount ?? 0)}  accent={stats?.lowStockCount ? 'warning' : 'neutral'} loading={loading} />
+        <StatCard label="Pending Replacements" value={String(stats?.pendingReplacement ?? 0)} accent={stats?.pendingReplacement ? 'warning' : 'neutral'} loading={loading} />
+        <StatCard label="Pending Refunds"      value={String(stats?.pendingRefunds ?? 0)} accent={stats?.pendingRefunds ? 'error' : 'neutral'} loading={loading} />
       </div>
 
       {/* Module cards */}
@@ -110,7 +105,7 @@ export default function DashboardPage() {
   );
 }
 
-function StatCard({ label, value, accent }: { label: string; value: string; accent: 'primary' | 'warning' | 'error' | 'neutral' }) {
+function StatCard({ label, value, accent, loading = false }: { label: string; value: string; accent: 'primary' | 'warning' | 'error' | 'neutral'; loading?: boolean }) {
   const colors = {
     primary: 'var(--color-brand-primary)',
     warning: 'var(--color-warning)',
@@ -127,7 +122,7 @@ function StatCard({ label, value, accent }: { label: string; value: string; acce
         color: colors[accent],
         fontVariantNumeric: 'tabular-nums',
       }}>
-        {value}
+        {loading ? <span style={{ fontSize: 16, color: 'var(--color-ink-muted)' }}>…</span> : value}
       </div>
       <div style={{ fontSize: 12, color: 'var(--color-ink-muted)', marginTop: 2, fontWeight: 500 }}>
         {label}

@@ -1,8 +1,7 @@
 /**
  * app/api/sales/route.ts
- *
- * GET  /api/sales         — list all sales + live stock dropdown data
- * POST /api/sales         — create a new sale with handler-aware stock deductions
+ * GET  /api/sales — list all sales & inventory/admin dropdowns (+ customer email join)
+ * POST /api/sales — create new sale, deduct stock, upsert customer_info record
  */
 
 import { requireAuth } from '@/lib/auth';
@@ -23,24 +22,43 @@ const COL = {
   totalItems:           6,
   itemNames:            7,
   sizes:                8,
-  totalAmount:          9,
-  paymentStatus:        10,
-  modeOfPayment:        11,
-  transactionId:        12,
-  createdAt:            13,
-  createdBy:            14,
-  updatedAt:            15,
-  updatedBy:            16,
-  version:              17,
-  deliveryStatus:       18,
-  deliveryChargeToggle: 19,
-  deliveryChargeAmount: 20,
-  fulfilmentStatus:     21,
-  fulfilmentSource:     22,
+  itemPrices:           9,
+  totalAmount:          10,
+  paymentStatus:        11,
+  modeOfPayment:        12,
+  transactionId:        13,
+  createdAt:            14,
+  createdBy:            15,
+  updatedAt:            16,
+  updatedBy:            17,
+  version:              18,
+  deliveryStatus:       19,
+  deliveryChargeToggle: 20,
+  deliveryChargeAmount: 21,
+  fulfilmentStatus:     22,
+  fulfilmentSource:     23,
+  saleClosedBy:         24,
+  discount:             25,
+  customerEmail:        26,
 };
 
 const COL_INV = { sno: 0, itemName: 1, size: 2, qty: 3, addedBy: 4, updatedAt: 5, updatedBy: 6, createdAt: 7 };
 const COL_W   = { sno: 0, location: 1, handler: 2, itemName: 3, size: 4, qty: 5, createdBy: 6, createdAt: 7, updatedBy: 8, updatedAt: 9 };
+
+// Customer Info column indices
+const COL_CI = {
+  sno:               0,
+  customerName:      1,
+  phoneNumber:       2,
+  address:           3,
+  emailId:           4,
+  totalOrders:       5,
+  invoiceNumbers:    6,
+  createdAt:         7,
+  createdBy:         8,
+  updatedAt:         9,
+  updatedBy:         10,
+};
 
 /** Generate the next FIC- invoice number based on existing rows. */
 async function generateInvoiceNumber(rows: string[][]): Promise<string> {
@@ -56,6 +74,74 @@ async function generateInvoiceNumber(rows: string[][]): Promise<string> {
   return `FIC-${maxNum + 1}`;
 }
 
+/**
+ * Upsert a customer_info row for the given phone number.
+ * Creates a new row if no match, or updates the existing row.
+ * Silently skips if customer_info module is not yet configured.
+ */
+async function upsertCustomerInfo(params: {
+  phone: string;
+  name: string;
+  address: string;
+  email: string;
+  invoiceNumber: string;
+  adminName: string;
+}): Promise<void> {
+  const { phone, name, address, email, invoiceNumber, adminName } = params;
+  try {
+    const ciRows = await readAllRows('customer_info');
+    const now = new Date().toISOString();
+
+    // Find existing row by phone (skip header row)
+    const existingIdx = ciRows.slice(1).findIndex(
+      (r) => (r[COL_CI.phoneNumber] ?? '').trim() === phone.trim()
+    );
+
+    if (existingIdx < 0) {
+      // New customer — append row
+      const sno = String(ciRows.length); // 1-based, header is row 1
+      await appendRows('customer_info', [[
+        sno,
+        name,
+        phone,
+        address,
+        email,
+        '1',
+        invoiceNumber,
+        now,
+        adminName,
+        now,
+        adminName,
+      ]]);
+    } else {
+      // Existing customer — update
+      const rowIndex = existingIdx + 2; // +1 for header, +1 for 1-based
+      const existing = ciRows[existingIdx + 1];
+      const currentOrders = parseInt(existing[COL_CI.totalOrders] ?? '0', 10) || 0;
+      const existingInvoices = (existing[COL_CI.invoiceNumbers] ?? '').trim();
+      const newInvoices = existingInvoices
+        ? existingInvoices + ', ' + invoiceNumber
+        : invoiceNumber;
+
+      await updateRow('customer_info', rowIndex, [
+        existing[COL_CI.sno],
+        existing[COL_CI.customerName] || name,
+        existing[COL_CI.phoneNumber],
+        existing[COL_CI.address] || address,
+        existing[COL_CI.emailId] || email,
+        String(currentOrders + 1),
+        newInvoices,
+        existing[COL_CI.createdAt] ?? now,
+        existing[COL_CI.createdBy] ?? adminName,
+        now,
+        adminName,
+      ]);
+    }
+  } catch {
+    // customer_info module may not be configured yet — skip silently
+  }
+}
+
 export async function GET() {
   try {
     await requireAuth();
@@ -65,12 +151,34 @@ export async function GET() {
   }
 
   try {
-    const [salesRows, invRows, wRows, adminRows] = await Promise.all([
+    const [salesRows, invRows, adminRows, wRows] = await Promise.all([
       readAllRows('sales'),
       readAllRows('inventory'),
-      readAllRows('warehouse'),
       readAllRows('admin_info'),
+      readAllRows('warehouse'),
     ]);
+
+    const EXPECTED_HEADERS = [
+      'S.No', 'Invoice Number', 'Sale Status', 'Customer Name', 'Customer Phone Number', 'Customer Address',
+      'Total Number of Items Purchased', 'Item(s) Name(s)', 'Size(s) Chosen', 'Item Prices', 'Total Amount',
+      'Payment Status', 'Mode of Payment', 'Transaction ID', 'Created At', 'Created By (Admin)',
+      'Updated At', 'Updated By', 'Version', 'Delivery Status', 'Delivery Charge Toggle',
+      'Delivery Charge Amount', 'Fulfilment Request Status', 'Fulfilment Source', 'Sale Closed By',
+      'Discount', 'Customer Email'
+    ];
+
+    // Auto-initialize header cells for new columns if not present
+    if (salesRows.length > 0) {
+      const headerRow = [...salesRows[0]];
+      let needsUpdate = false;
+      EXPECTED_HEADERS.forEach((h, idx) => {
+        if (headerRow[idx] !== h) {
+          headerRow[idx] = h;
+          needsUpdate = true;
+        }
+      });
+      if (needsUpdate) updateRow('sales', 1, headerRow).catch(() => {});
+    }
 
     const sales = salesRows.slice(1).map((row, i) => ({
       rowIndex:             i + 2,
@@ -97,9 +205,13 @@ export async function GET() {
       deliveryChargeAmount: parseFloat(row[COL.deliveryChargeAmount] ?? '0') || 0,
       fulfilmentStatus:     row[COL.fulfilmentStatus]     ?? 'Normal',
       fulfilmentSource:     row[COL.fulfilmentSource]     ?? 'Take from Inventory',
+      saleClosedBy:         row[COL.saleClosedBy]         ?? '',
+      discount:             parseFloat(row[COL.discount]  ?? '0') || 0,
+      customerEmail:        row[COL.customerEmail]        ?? '',
+      itemPrices:           row[COL.itemPrices]           ?? '',
     })).filter((s) => s.invoiceNumber);
 
-    // Live inventory stock items (item + size + available qty)
+    // Live inventory stock items
     const inventoryStock = invRows.slice(1).map((r) => ({
       itemName: (r[COL_INV.itemName] ?? '').trim(),
       size:     (r[COL_INV.size] ?? '').trim(),
@@ -109,7 +221,7 @@ export async function GET() {
     // Registered handlers (admins)
     const admins = adminRows.slice(1).map((r) => (r[1] ?? '').trim()).filter(Boolean);
 
-    // Warehouse stock per handler: `${handler}:${itemName}:${size}` -> qty
+    // Warehouse stock per handler
     const warehouseStock: Record<string, number> = {};
     for (const r of wRows.slice(1)) {
       const handler = (r[COL_W.handler] ?? '').trim();
@@ -126,7 +238,7 @@ export async function GET() {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return Response.json(
-      { error: "Couldn't load sales data. Check Sheet Configuration for 'sales'.", detail: message },
+      { error: "Couldn't load sales data.", detail: message },
       { status: 500 }
     );
   }
@@ -157,6 +269,7 @@ export async function POST(request: Request) {
       transactionId, saleStatus, deliveryStatus,
       deliveryChargeToggle, deliveryChargeAmount,
       fulfilmentStatus, fulfilmentSource,
+      customerEmail, discount,
     } = data!;
 
     const [salesRows, invRows, wRows] = await Promise.all([
@@ -269,7 +382,6 @@ export async function POST(request: Request) {
       // Deduct from Warehouse if handler specified
       if (fulfilmentSource !== 'Take from Inventory') {
         let remainingToDeduct = req.qty;
-        let totalHandlerRemaining = 0;
 
         for (let i = 1; i < wRows.length; i++) {
           const r = wRows[i];
@@ -289,41 +401,108 @@ export async function POST(request: Request) {
                 r[COL_W.size], String(newWQty), r[COL_W.createdBy], r[COL_W.createdAt],
                 admin.name, now,
               ]);
+
+              await recordInventoryHistory({
+                itemName: req.itemName,
+                size: req.size,
+                quantityChange: -deduct,
+                affectedSheet: 'Warehouse',
+                handler: fulfilmentSource,
+                transactionType: 'Sale Deduction',
+                relatedInvoiceNumber: invoiceNumber,
+                resultingBalance: newWQty,
+                createdBy: admin.name,
+                notes: `Sale ${invoiceNumber} fulfilled from ${fulfilmentSource}'s warehouse`,
+              });
             }
-            totalHandlerRemaining += (parseInt(r[COL_W.qty] ?? '0', 10) || 0) - (remainingToDeduct === 0 ? req.qty : 0);
           }
         }
-
-        await recordInventoryHistory({
-          itemName: req.itemName,
-          size: req.size,
-          quantityChange: -req.qty,
-          affectedSheet: 'Warehouse',
-          handler: fulfilmentSource,
-          transactionType: 'Sale Deduction',
-          relatedInvoiceNumber: invoiceNumber,
-          resultingBalance: Math.max(0, totalHandlerRemaining),
-          createdBy: admin.name,
-          notes: `Sale ${invoiceNumber} fulfilled from ${fulfilmentSource}'s warehouse`,
-        });
       }
     }
 
     // 4. Save Sales row
     const sno = String(salesRows.length);
-    const itemNamesStr = Array.isArray(itemNames) ? itemNames.join(', ') : (itemNames || Array.from(new Set(Object.values(itemSizeRequests).map((i) => i.itemName))).join(', '));
-    const sizesChosenStr = Array.isArray(sizesChosen) ? sizesChosen.join(', ') : (sizesChosen || Object.values(itemSizeRequests).map((i) => i.size).join(', '));
+
+    // Expand items and sizes to reflect exact quantities per item piece
+    const expandedItemNames: string[] = [];
+    const expandedSizes: string[] = [];
+
+    if (Array.isArray(body.items) && body.items.length > 0) {
+      for (const item of body.items) {
+        const itName = (item.itemName ?? '').trim();
+        const sz = (item.size ?? 'M').trim();
+        const q = parseInt(item.qty ?? '1', 10) || 1;
+        if (itName && sz) {
+          for (let k = 0; k < q; k++) {
+            expandedItemNames.push(itName);
+            expandedSizes.push(sz);
+          }
+        }
+      }
+    } else {
+      for (const req of Object.values(itemSizeRequests)) {
+        for (let k = 0; k < req.qty; k++) {
+          expandedItemNames.push(req.itemName);
+          expandedSizes.push(req.size);
+        }
+      }
+    }
+
+    const itemNamesStr = expandedItemNames.length > 0
+      ? expandedItemNames.join(', ')
+      : (Array.isArray(itemNames) ? itemNames.join(', ') : String(itemNames || ''));
+    const sizesChosenStr = expandedSizes.length > 0
+      ? expandedSizes.join(', ')
+      : (Array.isArray(sizesChosen) ? sizesChosen.join(', ') : String(sizesChosen || ''));
+
+    const isCompletedOnCreation = paymentStatus === 'Paid' && deliveryStatus === 'Order Delivered Successfully';
+    const effectiveSaleStatus = saleStatus ?? (isCompletedOnCreation ? 'Purchase Satisfied & Order Completed' : 'Not Provided / Order Only Placed');
+    const saleClosedByValue = (isCompletedOnCreation || effectiveSaleStatus.includes('Purchase Satisfied')) ? admin.name : '';
+
+    // Fetch catalog prices as fallback if unit prices not explicitly sent
+    const itemCatalogRows = await readAllRows('items');
+    const catalogPriceMap: Record<string, number> = {};
+    for (const r of itemCatalogRows.slice(1)) {
+      const name = (r[1] ?? '').trim().toLowerCase();
+      const price = parseFloat(r[3] ?? '0') || 0;
+      if (name && price > 0) catalogPriceMap[name] = price;
+    }
+
+    const expandedPrices: number[] = [];
+    if (Array.isArray(body.items) && body.items.length > 0) {
+      for (const item of body.items) {
+        const itName = (item.itemName ?? '').trim();
+        const sz = (item.size ?? 'M').trim();
+        const q = parseInt(item.qty ?? '1', 10) || 1;
+        const p = parseFloat(item.unitPrice ?? item.price ?? catalogPriceMap[itName.toLowerCase()] ?? '0') || 0;
+        if (itName && sz) {
+          for (let k = 0; k < q; k++) {
+            expandedPrices.push(p);
+          }
+        }
+      }
+    } else {
+      for (const req of Object.values(itemSizeRequests)) {
+        const p = catalogPriceMap[req.itemName.toLowerCase()] || 0;
+        for (let k = 0; k < req.qty; k++) {
+          expandedPrices.push(p);
+        }
+      }
+    }
+
+    const itemPricesStr = expandedPrices.length > 0 ? expandedPrices.join(', ') : '';
 
     await appendRows('sales', [[
       sno,
       invoiceNumber,
-      saleStatus ?? (paymentStatus === 'Paid' && deliveryStatus === 'Order Delivered Successfully' ? 'Purchase Satisfied & Order Completed' : 'Not Provided / Order Only Placed'),
+      effectiveSaleStatus,
       customerName,
       customerPhoneNumber,
       customerAddress,
       String(totalNumberOfItems),
       itemNamesStr,
       sizesChosenStr,
+      itemPricesStr,
       String(totalAmount),
       paymentStatus,
       modeOfPayment,
@@ -338,9 +517,22 @@ export async function POST(request: Request) {
       String(deliveryChargeAmount ?? 0),
       fulfilmentStatus ?? 'Normal',
       fulfilmentSource ?? 'Take from Inventory',
+      saleClosedByValue,
+      String(discount ?? 0),
+      customerEmail ?? '',
     ]]);
 
-    // 5. Enhanced Activity Logging (Section 2.8)
+    // 5. Upsert customer_info record (same transaction, silently skips if module not configured)
+    await upsertCustomerInfo({
+      phone:         customerPhoneNumber,
+      name:          customerName,
+      address:       customerAddress,
+      email:         customerEmail ?? '',
+      invoiceNumber,
+      adminName:     admin.name,
+    });
+
+    // 6. Enhanced Activity Logging
     const itemsSummary = Object.values(itemSizeRequests).map((r) => `${r.qty} piece(s) of ${r.itemName} (${r.size})`).join(', ');
     const sourceText = fulfilmentSource === 'Take from Inventory' ? 'unassigned inventory' : `${fulfilmentSource}'s warehouse`;
     const logMsg = `${admin.name} created sale ${invoiceNumber} — ${itemsSummary}, fulfilled from ${sourceText}.`;
@@ -353,16 +545,26 @@ export async function POST(request: Request) {
       recordId:   invoiceNumber,
     });
 
-    return Response.json(
-      { success: true, invoiceNumber, message: logMsg },
-      { status: 201 }
-    );
+    return Response.json({
+      success: true,
+      invoiceNumber,
+      message: logMsg,
+      sale: {
+        invoiceNumber,
+        customerName,
+        customerEmail: customerEmail ?? '',
+        totalAmount,
+        discount: discount ?? 0,
+        paymentStatus,
+        modeOfPayment,
+        transactionId,
+        saleStatus: effectiveSaleStatus,
+        deliveryStatus,
+        saleClosedBy: saleClosedByValue,
+      },
+    }, { status: 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('[sales POST]', message);
-    return Response.json(
-      { error: "Couldn't create the sale. Check your connection and try again.", detail: message },
-      { status: 500 }
-    );
+    return Response.json({ error: "Couldn't create sale record.", detail: message }, { status: 500 });
   }
 }

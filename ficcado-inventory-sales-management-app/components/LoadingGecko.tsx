@@ -11,7 +11,7 @@
  *  - Real quadruped walking motion (alternating leg gait + body undulation + tail wave).
  */
 
-import React from 'react';
+
 
 interface LoadingGeckoProps {
   size?: 'full' | 'inline';

@@ -4,7 +4,7 @@
  * Printable invoice page for a sale record.
  * URL: /dashboard/sales/[invoiceNumber]/invoice
  */
-import React, { useEffect, useState, use } from 'react';
+import { useEffect, useState, use } from 'react';
 import LoadingGecko from '@/components/LoadingGecko';
 
 export default function InvoicePage({ params }: { params: Promise<{ id: string }> }) {

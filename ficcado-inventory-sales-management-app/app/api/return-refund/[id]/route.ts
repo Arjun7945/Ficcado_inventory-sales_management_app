@@ -30,7 +30,11 @@ const COL_RET = {
   version:             14,
 };
 
-const COL_S = { sno: 0, invoiceNumber: 1, customerName: 3, itemNames: 7, sizes: 8, totalItems: 6, fulfilmentStatus: 21, saleStatus: 2 };
+const COL_S = {
+  sno: 0, invoiceNumber: 1, saleStatus: 2, customerName: 3,
+  totalItems: 6, itemNames: 7, sizes: 8, totalAmount: 10,
+  deliveryStatus: 19, fulfilmentStatus: 22, saleClosedBy: 24,
+};
 const COL_INV = { sno: 0, itemName: 1, size: 2, qty: 3, addedBy: 4, updatedAt: 5, updatedBy: 6, createdAt: 7 };
 const COL_W   = { sno: 0, location: 1, handler: 2, itemName: 3, size: 4, qty: 5, createdBy: 6, createdAt: 7, updatedBy: 8, updatedAt: 9 };
 
@@ -137,33 +141,40 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
             (r) => r[COL_INV.itemName]?.toLowerCase() === item.itemName.toLowerCase() && r[COL_INV.size] === item.size
           );
 
+          let newInvQty = item.qty;
           if (invIdx >= 0) {
             const invRow = invRows[invIdx + 1];
             const currentQty = parseInt(invRow[COL_INV.qty] ?? '0', 10) || 0;
-            const newQty = currentQty + item.qty;
+            newInvQty = currentQty + item.qty;
 
             await updateRow('inventory', invIdx + 2, [
-              invRow[COL_INV.sno], item.itemName, item.size, String(newQty),
+              invRow[COL_INV.sno], item.itemName, item.size, String(newInvQty),
               invRow[COL_INV.addedBy] ?? admin.name, now, admin.name, invRow[COL_INV.createdAt] ?? now,
             ]);
-
-            await recordInventoryHistory({
-              itemName: item.itemName,
-              size: item.size,
-              quantityChange: item.qty,
-              affectedSheet: 'Inventory',
-              transactionType: 'Refund Restock',
-              relatedInvoiceNumber: id,
-              resultingBalance: newQty,
-              createdBy: admin.name,
-              notes: `Refund restocked for invoice ${id}`,
-            });
+          } else {
+            const nextInvSno = String(invRows.length);
+            await appendRows('inventory', [[
+              nextInvSno, item.itemName, item.size, String(item.qty),
+              admin.name, now, admin.name, now,
+            ]]);
           }
+
+          await recordInventoryHistory({
+            itemName: item.itemName,
+            size: item.size,
+            quantityChange: item.qty,
+            affectedSheet: 'Inventory',
+            transactionType: 'Refund Restock',
+            relatedInvoiceNumber: id,
+            resultingBalance: newInvQty,
+            createdBy: admin.name,
+            notes: `Refund restocked for invoice ${id}`,
+          });
 
           // If handler restock destination specified
           if (restockDestination && restockDestination !== 'Inventory Only') {
             const wIdx = wRows.slice(1).findIndex(
-              (r) => (r[COL_W.handler] ?? '').trim() === restockDestination.trim() &&
+              (r) => (r[COL_W.handler] ?? '').trim().toLowerCase() === restockDestination.trim().toLowerCase() &&
                      (r[COL_W.itemName] ?? '').trim().toLowerCase() === item.itemName.toLowerCase() &&
                      (r[COL_W.size] ?? '').trim() === item.size
             );
@@ -179,6 +190,12 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
                 wRow[COL_W.size], String(newWQty), wRow[COL_W.createdBy], wRow[COL_W.createdAt],
                 admin.name, now,
               ]);
+            } else {
+              const nextWSno = String(wRows.length);
+              await appendRows('warehouse', [[
+                nextWSno, 'Main Restock Warehouse', restockDestination.trim(), item.itemName,
+                item.size, String(item.qty), admin.name, now, admin.name, now,
+              ]]);
             }
 
             await recordInventoryHistory({
@@ -243,6 +260,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
         const sRow = [...sRows[sIdx + 1]];
         sRow[COL_S.fulfilmentStatus] = 'Normal';
         sRow[COL_S.saleStatus] = 'Return & Refund';
+        sRow[COL_S.saleClosedBy] = admin.name;
 
         await updateRow('sales', sIdx + 2, sRow);
       }

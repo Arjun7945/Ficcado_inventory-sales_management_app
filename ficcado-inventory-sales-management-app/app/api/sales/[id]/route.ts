@@ -2,7 +2,7 @@
  * app/api/sales/[id]/route.ts
  *
  * GET    /api/sales/[id] — get single sale by invoice number or rowIndex
- * PUT    /api/sales/[id] — update sale (with Replace/Refund request locking and action handling)
+ * PUT    /api/sales/[id] — update sale (with Replace/Refund request locking and saleClosedBy tracking)
  * DELETE /api/sales/[id] — delete sale
  */
 
@@ -22,20 +22,24 @@ const COL = {
   totalItems:           6,
   itemNames:            7,
   sizes:                8,
-  totalAmount:          9,
-  paymentStatus:        10,
-  modeOfPayment:        11,
-  transactionId:        12,
-  createdAt:            13,
-  createdBy:            14,
-  updatedAt:            15,
-  updatedBy:            16,
-  version:              17,
-  deliveryStatus:       18,
-  deliveryChargeToggle: 19,
-  deliveryChargeAmount: 20,
-  fulfilmentStatus:     21,
-  fulfilmentSource:     22,
+  itemPrices:           9,
+  totalAmount:          10,
+  paymentStatus:        11,
+  modeOfPayment:        12,
+  transactionId:        13,
+  createdAt:            14,
+  createdBy:            15,
+  updatedAt:            16,
+  updatedBy:            17,
+  version:              18,
+  deliveryStatus:       19,
+  deliveryChargeToggle: 20,
+  deliveryChargeAmount: 21,
+  fulfilmentStatus:     22,
+  fulfilmentSource:     23,
+  saleClosedBy:         24,
+  discount:             25,
+  customerEmail:        26,
 };
 
 export async function GET(
@@ -89,6 +93,10 @@ export async function GET(
       deliveryChargeAmount: parseFloat(row[COL.deliveryChargeAmount] ?? '0') || 0,
       fulfilmentStatus:     row[COL.fulfilmentStatus]     ?? 'Normal',
       fulfilmentSource:     row[COL.fulfilmentSource]     ?? 'Take from Inventory',
+      saleClosedBy:         row[COL.saleClosedBy]         ?? '',
+      discount:             parseFloat(row[COL.discount]  ?? '0') || 0,
+      customerEmail:        row[COL.customerEmail]        ?? '',
+      itemPrices:           row[COL.itemPrices]           ?? '',
     };
 
     return Response.json({ sale });
@@ -138,7 +146,6 @@ export async function PUT(
       const now = new Date().toISOString();
       const newVersion = String(parseInt(row[COL.version] ?? '1', 10) + 1);
 
-      // Update Sales row fulfilmentStatus to 'Replace-Requested'
       const updatedRow = [...row];
       updatedRow[COL.fulfilmentStatus] = 'Replace-Requested';
       updatedRow[COL.updatedAt] = now;
@@ -147,25 +154,18 @@ export async function PUT(
 
       await updateRow('sales', actualRowIndex, updatedRow);
 
-      // Create linked record in Replacement Management sheet
       const replRows = await readAllRows('replacement');
       const replSno = String(replRows.length);
       await appendRows('replacement', [[
         replSno,
-        id, // Invoice Number
+        id,
         row[COL.totalItems] ?? '1',
         row[COL.itemNames] ?? '',
         row[COL.sizes] ?? '',
-        '', // New Item(s)
-        '', // New Item(s) Size
+        '', '',
         'Replacement Approved',
-        '', // Disposition
-        '', // Restock Destination
-        now,
-        admin.name,
-        now,
-        admin.name,
-        '1',
+        '', '',
+        now, admin.name, now, admin.name, '1',
       ]]);
 
       const logMsg = `${admin.name} marked sale ${id} as Replace Requested — moved to Replacement Management.`;
@@ -195,7 +195,6 @@ export async function PUT(
       const now = new Date().toISOString();
       const newVersion = String(parseInt(row[COL.version] ?? '1', 10) + 1);
 
-      // Update Sales row fulfilmentStatus to 'Refund-Requested'
       const updatedRow = [...row];
       updatedRow[COL.fulfilmentStatus] = 'Refund-Requested';
       updatedRow[COL.updatedAt] = now;
@@ -204,25 +203,19 @@ export async function PUT(
 
       await updateRow('sales', actualRowIndex, updatedRow);
 
-      // Create linked record in Return/Refund Management sheet
       const retRows = await readAllRows('return_refund');
       const retSno = String(retRows.length);
       await appendRows('return_refund', [[
         retSno,
-        id, // Invoice Number
-        'No Damage', // Verification Status
+        id,
+        'No Damage',
         'Refund Pending',
         row[COL.totalAmount] ?? '0',
-        '', // Completed Date
+        '',
         row[COL.transactionId] ?? '',
         row[COL.modeOfPayment] ?? 'UPI',
-        '', // Disposition
-        '', // Restock Destination
-        now,
-        admin.name,
-        now,
-        admin.name,
-        '1',
+        '', '',
+        now, admin.name, now, admin.name, '1',
       ]]);
 
       const logMsg = `${admin.name} marked sale ${id} as Refund Requested — moved to Return/Refund Management.`;
@@ -241,7 +234,7 @@ export async function PUT(
       });
     }
 
-    // 2. Normal Edit check — if sale is locked under Replace-Requested or Refund-Requested, block normal edits
+    // 2. Normal Edit check
     if (currentFulfilmentStatus !== 'Normal') {
       const sectionName = currentFulfilmentStatus === 'Replace-Requested' ? 'Replacement Management' : 'Return / Refund Management';
       return Response.json(
@@ -271,18 +264,33 @@ export async function PUT(
     const now = new Date().toISOString();
     const newVersion = String(parseInt(serverVersion, 10) + 1);
 
+    const nextPaymentStatus  = updates.paymentStatus  ?? row[COL.paymentStatus];
+    const nextDeliveryStatus = updates.deliveryStatus ?? row[COL.deliveryStatus];
+    const nextSaleStatus     = updates.saleStatus     ?? row[COL.saleStatus];
+
+    const isCompletedNow = (nextPaymentStatus === 'Paid' && nextDeliveryStatus === 'Order Delivered Successfully') ||
+                           (nextSaleStatus && nextSaleStatus.includes('Purchase Satisfied'));
+
+    let saleClosedByVal = row[COL.saleClosedBy] ?? '';
+    if (isCompletedNow) {
+      saleClosedByVal = admin.name;
+    } else if (nextPaymentStatus !== 'Paid') {
+      saleClosedByVal = '';
+    }
+
     const newRow = [
       row[COL.sno],
       row[COL.invoiceNumber],
-      updates.saleStatus      ?? row[COL.saleStatus],
+      nextSaleStatus,
       updates.customerName    ?? row[COL.customerName],
       updates.customerPhone   ?? row[COL.customerPhone],
       updates.customerAddress ?? row[COL.customerAddress],
       updates.totalItems      ?? row[COL.totalItems],
       Array.isArray(updates.itemNames) ? updates.itemNames.join(', ') : (updates.itemNames ?? row[COL.itemNames]),
       Array.isArray(updates.sizes)     ? updates.sizes.join(', ')     : (updates.sizes     ?? row[COL.sizes]),
+      updates.itemPrices      ?? row[COL.itemPrices]      ?? '',
       updates.totalAmount     ?? row[COL.totalAmount],
-      updates.paymentStatus   ?? row[COL.paymentStatus],
+      nextPaymentStatus,
       updates.modeOfPayment   ?? row[COL.modeOfPayment],
       updates.transactionId   ?? row[COL.transactionId],
       row[COL.createdAt],
@@ -290,11 +298,14 @@ export async function PUT(
       now,
       admin.name,
       newVersion,
-      updates.deliveryStatus       ?? row[COL.deliveryStatus]       ?? 'Packed & Ready for Shipment',
+      nextDeliveryStatus,
       String(updates.deliveryChargeToggle ?? row[COL.deliveryChargeToggle] ?? 'false'),
       String(updates.deliveryChargeAmount ?? row[COL.deliveryChargeAmount] ?? '0'),
       row[COL.fulfilmentStatus]    ?? 'Normal',
       updates.fulfilmentSource     ?? row[COL.fulfilmentSource]     ?? 'Take from Inventory',
+      saleClosedByVal,
+      String(updates.discount     ?? row[COL.discount]     ?? '0'),
+      updates.customerEmail   ?? row[COL.customerEmail]   ?? '',
     ];
 
     await updateRow('sales', actualRowIndex, newRow);
@@ -310,7 +321,8 @@ export async function PUT(
     return Response.json({
       success: true,
       version: newVersion,
-      message: `Sale ${id} updated successfully.`,
+      saleClosedBy: saleClosedByVal,
+      message: `Sale ${id} updated successfully by ${admin.name}.`,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -339,7 +351,17 @@ export async function DELETE(
       return Response.json({ error: `Sale '${id}' not found.` }, { status: 404 });
     }
 
-    await deleteRow('sales', foundIndex + 2);
+    const actualRowIndex = foundIndex + 2;
+    const row = rows[foundIndex + 1];
+
+    if ((row[COL.fulfilmentStatus] ?? 'Normal') !== 'Normal') {
+      return Response.json(
+        { error: `Cannot delete sale ${id} while it is locked under ${row[COL.fulfilmentStatus]}.` },
+        { status: 400 }
+      );
+    }
+
+    await deleteRow('sales', actualRowIndex);
 
     await logActivity({
       adminName: admin.name,

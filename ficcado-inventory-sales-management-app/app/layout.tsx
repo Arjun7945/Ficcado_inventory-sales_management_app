@@ -21,6 +21,13 @@ export const metadata: Metadata = {
   title: 'Ficcado — Inventory & Sales Management',
   description:
     'Internal management platform for Ficcado clothing — inventory, sales, replacements, returns, and warehouse tracking.',
+  icons: {
+    icon: [
+      { url: '/ficcado_logo.png', type: 'image/png' },
+    ],
+    shortcut: '/ficcado_logo.png',
+    apple: '/ficcado_logo.png',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

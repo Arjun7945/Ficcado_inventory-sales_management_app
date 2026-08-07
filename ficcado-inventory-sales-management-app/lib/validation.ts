@@ -71,9 +71,11 @@ export const SalesSchema = z.object({
   itemNames:               z.union([z.array(z.string()).min(1), z.string().min(1)]),
   sizesChosen:             z.union([z.array(z.string()).min(1), z.string().min(1)]),
   items:                   z.array(z.object({
-                             itemName: z.string(),
-                             size:     z.string(),
-                             qty:      z.coerce.number(),
+                             itemName:  z.string(),
+                             size:      z.string(),
+                             qty:       z.coerce.number(),
+                             unitPrice: z.coerce.number().optional(),
+                             price:     z.coerce.number().optional(),
                            })).optional(),
   totalAmount:             positiveNumber('Total amount'),
   paymentStatus:           z.string().default('Paid'),
@@ -85,6 +87,8 @@ export const SalesSchema = z.object({
   deliveryChargeAmount:    z.coerce.number().min(0).default(0),
   fulfilmentStatus:        z.string().default('Normal'),
   fulfilmentSource:        requiredString('Fulfilment source'),
+  customerEmail:           z.string().email('Enter a valid email address').optional().or(z.literal('')),
+  discount:                z.coerce.number().min(0, 'Discount cannot be negative').default(0),
 }).refine(
   (data) => {
     if (data.paymentStatus === 'Paid' && data.modeOfPayment !== 'Cash' && data.modeOfPayment !== 'N/A' && !data.transactionId) {

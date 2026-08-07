@@ -25,9 +25,20 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     if (idx === -1) return Response.json({ error: 'Note not found.' }, { status: 404 });
 
     const row = rows[idx + 1];
+
+    // Permission check: Creator only
+    const creator = (row[COL.createdBy] || '').trim().toLowerCase();
+    const current = admin.name.trim().toLowerCase();
+    if (creator && creator !== current && admin.role !== 'superadmin') {
+      return Response.json(
+        { error: `Permission denied — only the creator of this note (${row[COL.createdBy]}) can edit or delete it.` },
+        { status: 403 }
+      );
+    }
+
     const now = new Date().toISOString();
     await updateRow('keep_notes', idx + 2, [row[COL.sno], data!.noteContent, row[COL.createdBy], row[COL.createdAt], admin.name, now]);
-    await logActivity({ adminName: admin.name, action: 'updated', module: 'Keep Notes', moduleKey: 'keep_notes', recordId: 'Note' });
+    await logActivity({ adminName: admin.name, action: 'updated', module: 'Keep Notes', moduleKey: 'keep_notes', recordId: `Note #${row[COL.sno]}` });
     return Response.json({ success: true });
   } catch (err) { return Response.json({ error: 'Failed to update note.', detail: (err as Error).message }, { status: 500 }); }
 }
@@ -40,8 +51,21 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
     const rows = await readAllRows('keep_notes');
     const idx = rows.slice(1).findIndex((r, i) => r[COL.sno] === id || String(i + 1) === id);
     if (idx === -1) return Response.json({ error: 'Note not found.' }, { status: 404 });
+
+    const row = rows[idx + 1];
+
+    // Permission check: Creator only
+    const creator = (row[COL.createdBy] || '').trim().toLowerCase();
+    const current = admin.name.trim().toLowerCase();
+    if (creator && creator !== current && admin.role !== 'superadmin') {
+      return Response.json(
+        { error: `Permission denied — only the creator of this note (${row[COL.createdBy]}) can edit or delete it.` },
+        { status: 403 }
+      );
+    }
+
     await deleteRow('keep_notes', idx + 2);
-    await logActivity({ adminName: admin.name, action: 'deleted', module: 'Keep Notes', moduleKey: 'keep_notes', recordId: 'Note' });
+    await logActivity({ adminName: admin.name, action: 'deleted', module: 'Keep Notes', moduleKey: 'keep_notes', recordId: `Note #${row[COL.sno]}` });
     return Response.json({ success: true });
   } catch (err) { return Response.json({ error: 'Failed to delete note.', detail: (err as Error).message }, { status: 500 }); }
 }

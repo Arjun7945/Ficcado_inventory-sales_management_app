@@ -137,8 +137,6 @@ export default function ItemsPage() {
     !search || it.itemName.toLowerCase().includes(search.toLowerCase()) || it.itemType?.toLowerCase().includes(search.toLowerCase())
   );
 
-  if (loading) return <LoadingGecko size="full" label="Loading items…" />;
-
   return (
     <div>
       <div className="page-header">
@@ -146,7 +144,12 @@ export default function ItemsPage() {
           <h1 className="page-title">Items Management</h1>
           <div className="page-subtitle">Manage your product catalog — {items.length} item{items.length !== 1 ? 's' : ''}</div>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowCreate(true)}>+ Add Item</button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn btn-ghost btn-sm" onClick={loadItems} disabled={loading}>
+            ⟳ Refresh
+          </button>
+          <button className="btn btn-primary" onClick={() => setShowCreate(true)}>+ Add Item</button>
+        </div>
       </div>
 
       {error   && <ErrorMessage message={error.message}   variant="error"   onDismiss={() => setError(null)} />}
@@ -158,7 +161,11 @@ export default function ItemsPage() {
       </div>
 
       {/* Items table */}
-      {filtered.length === 0 ? (
+      {loading ? (
+        <div className="card" style={{ padding: 48, textAlign: 'center' }}>
+          <LoadingGecko label="Loading product catalog…" />
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="empty-state">
           <div style={{ fontSize: 32 }}>◈</div>
           <div className="empty-state-title">No items found</div>
@@ -187,7 +194,7 @@ export default function ItemsPage() {
                     <td style={{ color: 'var(--color-ink-muted)', fontSize: 12 }}>{item.sno}</td>
                     <td style={{ fontWeight: 600 }}>{item.itemName}</td>
                     <td>{item.itemType || '—'}</td>
-                    <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>₹{item.price}</td>
+                    <td style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>₹{item.price}</td>
                     <td>
                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                         {(item.sizes || '').split(/,\s*/).map((s) => s.trim()).filter(Boolean).map((s) => (
@@ -204,7 +211,7 @@ export default function ItemsPage() {
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button className="btn btn-secondary btn-sm" onClick={() => openEdit(item)}>Edit</button>
                         <button className="btn btn-danger btn-sm" onClick={() => handleDelete(item)} disabled={deleting === item.sno}>
-                          {deleting === item.sno ? '…' : 'Delete'}
+                          {deleting === item.sno ? <LoadingGecko size="inline" label="Deleting…" /> : 'Delete'}
                         </button>
                       </div>
                     </td>

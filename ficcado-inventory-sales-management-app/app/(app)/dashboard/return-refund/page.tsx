@@ -13,61 +13,61 @@ import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
 
 const VERIFICATION_STATUSES = ['No Damage', 'Damage Found on Returned Item(s)'];
-const REFUND_MODES          = ['Cash', 'UPI', 'Card', 'Bank Transfer'];
+const REFUND_MODES = ['Cash', 'UPI', 'Card', 'Bank Transfer'];
 
 interface ReturnRecord {
-  rowIndex:           number;
-  invoiceNumber:      string;
+  rowIndex: number;
+  invoiceNumber: string;
   verificationStatus: string;
-  refundStatus:       string;
-  refundAmount:       string;
-  refundCompletedAt:  string;
-  transactionId:      string;
-  modeOfRefund:       string;
-  disposition:        string;
+  refundStatus: string;
+  refundAmount: string;
+  refundCompletedAt: string;
+  transactionId: string;
+  modeOfRefund: string;
+  disposition: string;
   restockDestination: string;
-  createdAt:          string;
-  createdBy:          string;
-  version:            string;
+  createdAt: string;
+  createdBy: string;
+  version: string;
 }
 
 interface SaleDetails {
   invoiceNumber: string;
-  customerName:  string;
-  itemNames:     string;
-  sizes:         string;
-  totalItems:    string;
+  customerName: string;
+  itemNames: string;
+  sizes: string;
+  totalItems: string;
 }
 
 export default function ReturnRefundPage() {
-  const [records, setRecords]   = useState<ReturnRecord[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState<{ message: string } | null>(null);
-  const [success, setSuccess]   = useState<string | null>(null);
-  const [search, setSearch]     = useState('');
+  const [records, setRecords] = useState<ReturnRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<{ message: string } | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   // Edit Modal State
-  const [activeItem, setActiveItem]         = useState<ReturnRecord | null>(null);
-  const [saleDetails, setSaleDetails]       = useState<SaleDetails | null>(null);
-  const [admins, setAdmins]                 = useState<string[]>([]);
-  const [modalLoading, setModalLoading]     = useState(false);
-  const [saving, setSaving]                 = useState(false);
-  const [editError, setEditError]           = useState<string | null>(null);
+  const [activeItem, setActiveItem] = useState<ReturnRecord | null>(null);
+  const [saleDetails, setSaleDetails] = useState<SaleDetails | null>(null);
+  const [admins, setAdmins] = useState<string[]>([]);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   // Form Fields
-  const [editVerification, setEditVerification]   = useState('No Damage');
-  const [editRefundStatus, setEditRefundStatus]   = useState('Pending');
-  const [editRefundAmount, setEditRefundAmount]   = useState('');
-  const [editMode, setEditMode]                   = useState('Cash');
-  const [editTxId, setEditTxId]                   = useState('');
-  const [disposition, setDisposition]             = useState<'Returned to Inventory' | 'Sent to Damaged Products'>('Returned to Inventory');
+  const [editVerification, setEditVerification] = useState('No Damage');
+  const [editRefundStatus, setEditRefundStatus] = useState('Pending');
+  const [editRefundAmount, setEditRefundAmount] = useState('');
+  const [editMode, setEditMode] = useState('Cash');
+  const [editTxId, setEditTxId] = useState('');
+  const [disposition, setDisposition] = useState<'Returned to Inventory' | 'Sent to Damaged Products'>('Returned to Inventory');
   const [restockDestination, setRestockDestination] = useState('Inventory Only');
-  const [deleting, setDeleting]                   = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   async function loadRecords() {
     setLoading(true);
     try {
-      const res  = await fetch('/api/return-refund');
+      const res = await fetch('/api/return-refund');
       const data = await res.json();
       if (!res.ok) { setError(parseApiError(data)); return; }
       setRecords(data.records ?? []);
@@ -94,7 +94,7 @@ export default function ReturnRefundPage() {
       const res = await fetch(`/api/return-refund/${encodeURIComponent(r.invoiceNumber)}`);
       const data = await res.json();
       if (data.saleDetails) setSaleDetails(data.saleDetails);
-      if (data.admins)      setAdmins(data.admins);
+      if (data.admins) setAdmins(data.admins);
     } catch {
       // non-fatal if saleDetails lookup fails
     } finally {
@@ -120,20 +120,20 @@ export default function ReturnRefundPage() {
     }
 
     try {
-      const res  = await fetch(`/api/return-refund/${encodeURIComponent(activeItem.invoiceNumber)}`, {
+      const res = await fetch(`/api/return-refund/${encodeURIComponent(activeItem.invoiceNumber)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          version:            activeItem.version,
+          version: activeItem.version,
           verificationStatus: editVerification,
-          refundStatus:       editRefundStatus,
-          refundAmount:       parseFloat(editRefundAmount || '0'),
-          modeOfRefund:       editMode,
-          transactionId:      editTxId,
+          refundStatus: editRefundStatus,
+          refundAmount: parseFloat(editRefundAmount || '0'),
+          modeOfRefund: editMode,
+          transactionId: editTxId,
           disposition,
           restockDestination: disposition === 'Returned to Inventory' ? restockDestination : undefined,
           returnedItems,
-          refundCompletedAt:  editRefundStatus === 'Completed' || editRefundStatus === 'Refund Completed' ? new Date().toISOString() : undefined,
+          refundCompletedAt: editRefundStatus === 'Completed' || editRefundStatus === 'Refund Completed' ? new Date().toISOString() : undefined,
         }),
       });
 
@@ -152,7 +152,7 @@ export default function ReturnRefundPage() {
     if (!confirm(`Delete return/refund record for '${r.invoiceNumber}'?`)) return;
     setDeleting(r.invoiceNumber);
     try {
-      const res  = await fetch(`/api/return-refund/${encodeURIComponent(r.invoiceNumber)}`, { method: 'DELETE' });
+      const res = await fetch(`/api/return-refund/${encodeURIComponent(r.invoiceNumber)}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) { setError(parseApiError(data)); return; }
       setSuccess(`Return/Refund for ${r.invoiceNumber} deleted.`);
@@ -165,8 +165,6 @@ export default function ReturnRefundPage() {
     !search || r.invoiceNumber?.toLowerCase().includes(search.toLowerCase())
   );
 
-  if (loading) return <LoadingGecko size="full" label="Loading return/refund records…" />;
-
   return (
     <div>
       <div className="page-header">
@@ -174,30 +172,33 @@ export default function ReturnRefundPage() {
           <h1 className="page-title">Returns & Refunds</h1>
           <div className="page-subtitle">Manage return processing and refund tracking — {records.length} record{records.length !== 1 ? 's' : ''}</div>
         </div>
+        <button className="btn btn-ghost btn-sm" onClick={loadRecords} disabled={loading}>
+          ⟳ Refresh
+        </button>
       </div>
 
-      {error   && <ErrorMessage message={error.message}   variant="error"   onDismiss={() => setError(null)} />}
-      {success && <ErrorMessage message={success}          variant="success" onDismiss={() => setSuccess(null)} />}
+      {error && <ErrorMessage message={error.message} variant="error" onDismiss={() => setError(null)} />}
+      {success && <ErrorMessage message={success} variant="success" onDismiss={() => setSuccess(null)} />}
 
       {/* Search */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-        <div className="search-bar" style={{ flex: 1, maxWidth: 360 }}>
-          <span style={{ color: 'var(--color-ink-muted)' }}>⌕</span>
-          <input type="text" className="form-input" placeholder="Search by invoice number…" value={search} onChange={(e) => setSearch(e.target.value)} />
-        </div>
-        <button className="btn btn-ghost btn-sm" onClick={loadRecords}>↻ Refresh</button>
+      <div className="card" style={{ padding: '10px 14px', marginBottom: 16 }}>
+        <input type="text" className="form-input" placeholder="Search by invoice number…" value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
 
-      {filtered.length === 0 ? (
-        <div className="empty-state">
-          <div style={{ fontSize: 28 }}>↩</div>
-          <div className="empty-state-title">No return/refund records</div>
-          <div style={{ fontSize: 13, color: 'var(--color-ink-muted)' }}>
-            Sales marked as &quot;Refund Requested&quot; will automatically appear here for disposition & processing.
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        {loading ? (
+          <div style={{ padding: 48, textAlign: 'center' }}>
+            <LoadingGecko label="Loading return and refund records…" />
           </div>
-        </div>
-      ) : (
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        ) : filtered.length === 0 ? (
+          <div className="empty-state">
+            <div style={{ fontSize: 28 }}>↩</div>
+            <div className="empty-state-title">No return/refund records</div>
+            <div style={{ fontSize: 13, color: 'var(--color-ink-muted)' }}>
+              Sales marked as &quot;Refund Requested&quot; will automatically appear here for disposition & processing.
+            </div>
+          </div>
+        ) : (
           <div style={{ overflowX: 'auto' }}>
             <table className="data-table">
               <thead>
@@ -248,8 +249,8 @@ export default function ReturnRefundPage() {
               </tbody>
             </table>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Edit Modal */}
       {activeItem && (
@@ -335,8 +336,8 @@ export default function ReturnRefundPage() {
                           onChange={(e) => setRestockDestination(e.target.value)}
                         >
                           <option value="Inventory Only">Inventory Only (Unassigned Main Stock)</option>
-                          {admins.map((adm) => (
-                            <option key={adm} value={adm}>Handler: {adm}</option>
+                          {Array.from(new Set(admins)).map((adm, idx) => (
+                            <option key={`${adm}-${idx}`} value={adm}>Handler: {adm}</option>
                           ))}
                         </select>
                       </div>

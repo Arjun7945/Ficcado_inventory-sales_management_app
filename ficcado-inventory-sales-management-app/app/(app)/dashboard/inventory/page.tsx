@@ -136,8 +136,6 @@ export default function InventoryPage() {
     }
   }
 
-  if (loading) return <LoadingGecko size="full" label="Loading stock levels…" />;
-
   return (
     <div>
       <div className="page-header">
@@ -145,16 +143,25 @@ export default function InventoryPage() {
           <h1 className="page-title">Inventory Stock</h1>
           <div className="page-subtitle">{inventory.length} size stock records</div>
         </div>
-        <button className="btn btn-primary" onClick={handleOpenCreate}>
-          + Update / Add Stock
-        </button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn btn-ghost btn-sm" onClick={loadInventory} disabled={loading}>
+            ⟳ Refresh
+          </button>
+          <button className="btn btn-primary" onClick={handleOpenCreate}>
+            + Update / Add Stock
+          </button>
+        </div>
       </div>
 
       {error   && <ErrorMessage message={error.message} variant="error"   onDismiss={() => setError(null)} />}
       {success && <ErrorMessage message={success}       variant="success" onDismiss={() => setSuccess(null)} />}
 
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        {inventory.length === 0 ? (
+        {loading ? (
+          <div style={{ padding: 48, textAlign: 'center' }}>
+            <LoadingGecko label="Loading inventory stock levels…" />
+          </div>
+        ) : inventory.length === 0 ? (
           <div className="empty-state">
             <div style={{ fontSize: 28 }}>▦</div>
             <div className="empty-state-title">No stock entries yet</div>

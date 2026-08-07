@@ -46,14 +46,23 @@ function getAuth(): InstanceType<typeof google.auth.GoogleAuth> {
   return _auth;
 }
 
+let _sheetsClient: ReturnType<typeof google.sheets> | null = null;
+let _driveClient: ReturnType<typeof google.drive> | null = null;
+
 /** Returns an authenticated Google Sheets API client. */
 export async function getSheetsClient() {
-  const auth = getAuth();
-  return google.sheets({ version: 'v4', auth });
+  if (!_sheetsClient) {
+    const auth = getAuth();
+    _sheetsClient = google.sheets({ version: 'v4', auth });
+  }
+  return _sheetsClient;
 }
 
 /** Returns an authenticated Google Drive API client. */
 export async function getDriveClient() {
-  const auth = getAuth();
-  return google.drive({ version: 'v3', auth });
+  if (!_driveClient) {
+    const auth = getAuth();
+    _driveClient = google.drive({ version: 'v3', auth });
+  }
+  return _driveClient;
 }

@@ -9,7 +9,7 @@ import nodemailer from 'nodemailer';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(request: Request) {
+export async function POST(_request: Request) {
   let admin;
   try { admin = await requireAuth(); } catch (e) { if (e instanceof Response) return e; return Response.json({ error: 'Auth required.' }, { status: 401 }); }
 

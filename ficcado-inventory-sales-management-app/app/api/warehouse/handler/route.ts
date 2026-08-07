@@ -6,7 +6,7 @@
  */
 
 import { requireAuth } from '@/lib/auth';
-import { readAllRows, updateRow, deleteRow, appendRows } from '@/lib/google/moduleSheet';
+import { readAllRows, deleteRow, appendRows } from '@/lib/google/moduleSheet';
 import { logActivity } from '@/lib/activityLogger';
 import { recordInventoryHistory } from '@/lib/inventoryHistory';
 

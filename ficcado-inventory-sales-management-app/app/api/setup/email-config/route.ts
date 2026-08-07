@@ -17,9 +17,8 @@ import { setAppMeta, encryptValue } from '@/lib/google/appMeta';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
-  let admin;
   try {
-    admin = await requireSuperadmin();
+    await requireSuperadmin();
   } catch (authErr) {
     if (authErr instanceof Response) return authErr;
     return Response.json({ error: 'Authentication required.' }, { status: 401 });

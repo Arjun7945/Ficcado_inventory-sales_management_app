@@ -330,6 +330,41 @@ h1, h2, h3, h4, h5, h6 {
   border-bottom: 1px solid var(--color-border);
 }
 
+/* --- KPI Stats Grid --- */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.stat-card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.stat-value {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--color-brand-primary);
+  line-height: 1.2;
+}
+
 /* --- Forms / Inputs --- */
 .form-group {
   display: flex;
@@ -388,39 +423,45 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* --- Tables --- */
-.data-table {
+.data-table,
+.table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13.5px;
 }
 
-.data-table thead tr {
+.data-table thead tr,
+.table thead tr {
   border-bottom: 2px solid var(--color-border);
 }
 
-.data-table th {
+.data-table th,
+.table th {
   font-family: var(--font-display);
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: var(--color-ink-muted);
-  padding: 10px 14px;
+  padding: 12px 16px;
   text-align: left;
   white-space: nowrap;
 }
 
-.data-table td {
-  padding: 11px 14px;
+.data-table td,
+.table td {
+  padding: 13px 16px;
   border-bottom: 1px solid var(--color-border);
   vertical-align: middle;
 }
 
-.data-table tbody tr:last-child td {
+.data-table tbody tr:last-child td,
+.table tbody tr:last-child td {
   border-bottom: none;
 }
 
-.data-table tbody tr:hover td {
+.data-table tbody tr:hover td,
+.table tbody tr:hover td {
   background-color: rgba(180,209,239,0.15); /* brand-secondary tint */
 }
 
@@ -757,17 +798,76 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .gecko-track-full {
-  width: 200px;
-  height: 48px;
+  width: 280px;
+  height: 160px;
   position: relative;
   overflow: visible;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .gecko-track-inline {
   width: 48px;
-  height: 20px;
+  height: 40px;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gecko-walk-track-full > svg {
+  animation: gecko-pace-walk 6s ease-in-out infinite;
+}
+
+.gecko-walk-track-inline > svg {
+  animation: gecko-pace-walk-inline 4s ease-in-out infinite;
+}
+
+.gecko-walking .gecko-limb-tl,
+.gecko-walking .gecko-limb-br {
+  animation: gecko-leg-left 0.35s ease-in-out infinite alternate;
+}
+
+.gecko-walking .gecko-limb-tr,
+.gecko-walking .gecko-limb-bl-royal {
+  animation: gecko-leg-right 0.35s ease-in-out infinite alternate;
+}
+
+.gecko-walking .gecko-limb-tail {
+  animation: gecko-tail-wave 0.7s ease-in-out infinite alternate;
+}
+
+@keyframes gecko-pace-walk {
+  0% { transform: translateX(-70px) scaleX(1); }
+  45% { transform: translateX(70px) scaleX(1); }
+  50% { transform: translateX(70px) scaleX(-1); }
+  95% { transform: translateX(-70px) scaleX(-1); }
+  100% { transform: translateX(-70px) scaleX(1); }
+}
+
+@keyframes gecko-pace-walk-inline {
+  0% { transform: translateX(-10px) scaleX(1); }
+  45% { transform: translateX(10px) scaleX(1); }
+  50% { transform: translateX(10px) scaleX(-1); }
+  95% { transform: translateX(-10px) scaleX(-1); }
+  100% { transform: translateX(-10px) scaleX(1); }
+}
+
+@keyframes gecko-leg-left {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  100% { transform: translate(-3px, -4px) rotate(-8deg); }
+}
+
+@keyframes gecko-leg-right {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  100% { transform: translate(3px, -4px) rotate(8deg); }
+}
+
+@keyframes gecko-tail-wave {
+  0% { transform: rotate(0deg); transform-origin: 75px 130px; }
+  100% { transform: rotate(10deg); transform-origin: 75px 130px; }
 }
 
 /* Reduced-motion: hide animation, show static mark */

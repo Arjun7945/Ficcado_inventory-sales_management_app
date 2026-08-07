@@ -14,15 +14,32 @@ import nodemailer from 'nodemailer';
 
 export const dynamic = 'force-dynamic';
 
-const MODULES_TO_SEND = ['items', 'inventory', 'sales', 'replacement', 'return_refund', 'warehouse'];
+const MODULES_TO_SEND = [
+  'items',
+  'inventory',
+  'warehouse',
+  'sales',
+  'replacement',
+  'return_refund',
+  'customer_info',
+  'inventory_history',
+  'damaged_products',
+  'notes',
+  'activity_logs',
+];
 
 const MODULE_HEADERS: Record<string, string[]> = {
-  items:         ['S.No', 'Item Name', 'Item Type', 'Price', 'Available Sizes', 'Created By', 'Created At', 'Updated By', 'Updated At', 'Status'],
-  inventory:     ['S.No', 'Item Name', 'Size', 'Total Quantity Available', 'Added By', 'Updated At', 'Updated By', 'Created At'],
-  warehouse:     ['S.No', 'Warehouse Location', 'Handler Name', 'Items Available', 'Sizes Available'],
-  sales:         ['S.No', 'Invoice Number', 'Sale Status', 'Customer Name', 'Customer Phone', 'Customer Address', 'Total Items', 'Item Names', 'Sizes Chosen', 'Total Amount', 'Payment Status', 'Mode of Payment', 'Transaction ID', 'Created At', 'Created By', 'Updated At', 'Updated By'],
-  replacement:   ['S.No', 'Invoice Number', 'Total Items', 'Last Items', 'Last Sizes', 'New Items', 'New Sizes', 'Invoice Status', 'Created At', 'Created By', 'Updated At', 'Updated By'],
-  return_refund: ['S.No', 'Invoice Number', 'Verification Status', 'Refund Status', 'Refund Amount', 'Refund Completed At', 'Transaction ID', 'Mode of Refund', 'Created At', 'Created By', 'Updated At', 'Updated By'],
+  items:             ['S.No', 'Item Name', 'Item Type', 'Price', 'Available Sizes', 'Created By', 'Created At', 'Updated By', 'Updated At', 'Status'],
+  inventory:         ['S.No', 'Item Name', 'Size', 'Total Quantity Available', 'Added By', 'Updated At', 'Updated By', 'Created At'],
+  warehouse:         ['S.No', 'Warehouse Location', 'Handler Name', 'Item Name', 'Size', 'Quantity', 'Created By', 'Created At', 'Updated By', 'Updated At'],
+  sales:             ['S.No', 'Invoice Number', 'Sale Status', 'Customer Name', 'Customer Phone', 'Customer Address', 'Total Items', 'Item Names', 'Sizes Chosen', 'Item Prices', 'Total Amount', 'Payment Status', 'Mode of Payment', 'Transaction ID', 'Created At', 'Created By', 'Updated At', 'Updated By', 'Version', 'Delivery Status', 'Delivery Charge Toggle', 'Delivery Charge Amount', 'Fulfilment Status', 'Fulfilment Source', 'Sale Closed By', 'Discount', 'Customer Email'],
+  replacement:       ['S.No', 'Invoice Number', 'Total Items', 'Last Items', 'Last Sizes', 'New Items', 'New Sizes', 'Invoice Status', 'Disposition', 'Restock Destination', 'Created At', 'Created By', 'Updated At', 'Updated By', 'Version'],
+  return_refund:     ['S.No', 'Invoice Number', 'Verification Status', 'Refund Status', 'Refund Amount', 'Refund Completed At', 'Transaction ID', 'Mode of Refund', 'Disposition', 'Restock Destination', 'Created At', 'Created By', 'Updated At', 'Updated By'],
+  customer_info:     ['S.No', 'Customer Name', 'Phone Number', 'Address', 'Email ID', 'Total Orders', 'Invoice Numbers', 'Created At', 'Created By', 'Updated At', 'Updated By'],
+  inventory_history: ['S.No', 'Item Name', 'Size', 'Quantity Change', 'Affected Sheet', 'Handler', 'Transaction Type', 'Related Invoice', 'Resulting Balance', 'Created By', 'Created At', 'Notes'],
+  damaged_products:  ['S.No', 'Invoice Number', 'Item Name', 'Size', 'Quantity', 'Customer Name', 'Reason Notes', 'Logged By', 'Logged At'],
+  notes:             ['S.No', 'Note Content', 'Created By', 'Created At', 'Updated By', 'Updated At'],
+  activity_logs:     ['S.No', 'Admin Name', 'Action', 'Module', 'Module Key', 'Record ID', 'Logged At', 'Message'],
 };
 
 async function getEmailConfig() {

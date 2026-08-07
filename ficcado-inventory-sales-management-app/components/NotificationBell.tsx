@@ -6,7 +6,7 @@
  * Clicking opens a slide-down panel with recent activity log entries.
  * Human-readable format: "Rohith updated Sales Management on FIC-215 on 02/08/2026 at 5:14 PM"
  */
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 interface ActivityEntry {
   id:         string;

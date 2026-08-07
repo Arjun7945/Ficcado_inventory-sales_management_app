@@ -125,6 +125,28 @@ export async function batchGet(requests: BatchGetRequest[]): Promise<BatchGetRes
   });
 }
 
+/** In-memory cache for module rows to eliminate redundant Google Sheets API network calls. */
+interface CachedRows {
+  rows: string[][];
+  timestamp: number;
+}
+const _rowsCache = new Map<string, CachedRows>();
+const DATA_CACHE_TTL_MS = 30_000; // 30 seconds TTL for fast subsequent reads
+
+/** In-flight Promise deduplication map per moduleKey */
+const _pendingReads = new Map<string, Promise<string[][]>>();
+
+/** Manually bust the rows cache for a specific module key (or all if omitted). */
+export function bustRowsCache(moduleKey?: string): void {
+  if (moduleKey) {
+    _rowsCache.delete(moduleKey);
+    _pendingReads.delete(moduleKey);
+  } else {
+    _rowsCache.clear();
+    _pendingReads.clear();
+  }
+}
+
 /**
  * Append one or more rows to a module's sheet.
  */
@@ -132,6 +154,7 @@ export async function appendRows(
   moduleKey: string,
   rows: (string | number | boolean | null)[][]
 ): Promise<void> {
+  bustRowsCache(moduleKey);
   const { spreadsheetId, tabName } = await getModuleSheet(moduleKey);
   const sheets = await getSheetsClient();
 
@@ -151,6 +174,7 @@ export async function updateRow(
   rowIndex: number,
   values: (string | number | boolean | null)[]
 ): Promise<void> {
+  bustRowsCache(moduleKey);
   const { spreadsheetId, tabName } = await getModuleSheet(moduleKey);
   const sheets = await getSheetsClient();
 
@@ -168,6 +192,7 @@ export async function updateRow(
  * clear, so we use batchUpdate to delete the row entirely).
  */
 export async function deleteRow(moduleKey: string, rowIndex: number): Promise<void> {
+  bustRowsCache(moduleKey);
   const { spreadsheetId, tabName } = await getModuleSheet(moduleKey);
   const sheets = await getSheetsClient();
 
@@ -204,17 +229,40 @@ export async function deleteRow(moduleKey: string, rowIndex: number): Promise<vo
 /**
  * Read all rows from a module's sheet (including header).
  * Returns raw string[][] — caller is responsible for parsing.
+ * Uses an in-memory 30-second TTL cache and single-flight promise coalescing for maximum speed.
  */
-export async function readAllRows(moduleKey: string): Promise<string[][]> {
-  const { spreadsheetId, tabName } = await getModuleSheet(moduleKey);
-  const sheets = await getSheetsClient();
+export async function readAllRows(moduleKey: string, forceFresh = false): Promise<string[][]> {
+  const now = Date.now();
+  const cached = _rowsCache.get(moduleKey);
 
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: `${tabName}!A:ZZ`,
-  });
+  if (!forceFresh && cached && now - cached.timestamp < DATA_CACHE_TTL_MS) {
+    return cached.rows;
+  }
 
-  return (res.data.values ?? []) as string[][];
+  if (!forceFresh && _pendingReads.has(moduleKey)) {
+    return _pendingReads.get(moduleKey)!;
+  }
+
+  const promise = (async () => {
+    try {
+      const { spreadsheetId, tabName } = await getModuleSheet(moduleKey);
+      const sheets = await getSheetsClient();
+
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `${tabName}!A:ZZ`,
+      });
+
+      const rows = (res.data.values ?? []) as string[][];
+      _rowsCache.set(moduleKey, { rows, timestamp: Date.now() });
+      return rows;
+    } finally {
+      _pendingReads.delete(moduleKey);
+    }
+  })();
+
+  _pendingReads.set(moduleKey, promise);
+  return promise;
 }
 
 /** Convert a column count to a letter (1→A, 2→B, 26→Z, 27→AA, etc.) */

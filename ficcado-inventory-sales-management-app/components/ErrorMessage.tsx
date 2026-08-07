@@ -13,7 +13,7 @@
  *  - Match the voice: direct, calm, factual
  */
 
-import React from 'react';
+
 
 type ErrorVariant = 'error' | 'warning' | 'conflict' | 'success';
 
@@ -84,10 +84,29 @@ export default function ErrorMessage({
  * Inspects the error object and returns appropriate message + hint.
  */
 export function parseApiError(err: unknown): { message: string; hint?: string } {
-  if (typeof err === 'string') return { message: err };
+  if (!err) return { message: "An unexpected error occurred. Please try again." };
+
+  if (typeof err === 'string') {
+    if (err === '[object Event]') {
+      return { message: "A network connection error occurred. Please check your internet connection and try again." };
+    }
+    return { message: err };
+  }
+
+  // Handle browser DOM Event objects (e.g., failed network fetch or image load events)
+  if (
+    (typeof Event !== 'undefined' && err instanceof Event) ||
+    (typeof err === 'object' && err !== null && ('nativeEvent' in err || ('target' in err && 'type' in err)))
+  ) {
+    return { message: "Network connection error. Please check your internet connection and try again." };
+  }
 
   if (err && typeof err === 'object') {
     const e = err as Record<string, unknown>;
+
+    if (typeof e.message === 'string' && e.message === '[object Event]') {
+      return { message: "Network connection error. Please check your internet connection and try again." };
+    }
 
     // Validation errors map
     if (e.errors && typeof e.errors === 'object') {
@@ -138,11 +157,11 @@ export function parseApiError(err: unknown): { message: string; hint?: string } 
 
     // Generic API error with message
     if (typeof e.error === 'string') {
-      return { message: String(e.error), hint: e.hint as string | undefined };
+      return { message: String(e.error), hint: (e.hint || e.detail) as string | undefined };
     }
 
     if (typeof e.message === 'string') {
-      return { message: String(e.message) };
+      return { message: String(e.message), hint: e.detail as string | undefined };
     }
   }
 

@@ -3,7 +3,7 @@
  * app/(app)/dashboard/sales/[id]/courier-slip/page.tsx
  * Printable courier/shipping slip for a sale record.
  */
-import React, { useEffect, useState, use } from 'react';
+import { useEffect, useState, use } from 'react';
 import LoadingGecko from '@/components/LoadingGecko';
 
 export default function CourierSlipPage({ params }: { params: Promise<{ id: string }> }) {
@@ -82,15 +82,29 @@ export default function CourierSlipPage({ params }: { params: Promise<{ id: stri
         {/* Item details */}
         <div style={{ padding: '12px 16px' }}>
           <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', color: '#666', marginBottom: 6 }}>CONTENTS</div>
-          <div style={{ fontSize: 13 }}>
-            <span style={{ fontWeight: 600 }}>Item(s):</span> {sale.itemNames}
-          </div>
-          <div style={{ fontSize: 13, marginTop: 4 }}>
-            <span style={{ fontWeight: 600 }}>Size(s):</span> {sale.sizesChosen}
-          </div>
-          <div style={{ fontSize: 13, marginTop: 4 }}>
-            <span style={{ fontWeight: 600 }}>Qty:</span> {sale.totalItems}
-          </div>
+          {(() => {
+            const names = (sale.itemNames || '').split(',').map((n: string) => n.trim()).filter(Boolean);
+            const sizes = (sale.sizesChosen || sale.sizes || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+            const map = new Map<string, number>();
+            for (let i = 0; i < names.length; i++) {
+              const sz = sizes[i] ?? sizes[0] ?? '—';
+              const key = `${names[i]} (Size: ${sz})`;
+              map.set(key, (map.get(key) || 0) + 1);
+            }
+            const summaryStr = Array.from(map.entries())
+              .map(([k, q]) => (q > 1 ? `${k} × ${q}` : k))
+              .join(', ');
+            return (
+              <>
+                <div style={{ fontSize: 13 }}>
+                  <span style={{ fontWeight: 600 }}>Item(s):</span> {summaryStr || sale.itemNames}
+                </div>
+                <div style={{ fontSize: 13, marginTop: 4 }}>
+                  <span style={{ fontWeight: 600 }}>Total Pieces:</span> {sale.totalItems}
+                </div>
+              </>
+            );
+          })()}
         </div>
 
         <hr style={{ margin: '0 16px', borderColor: '#ddd' }} />

@@ -13,7 +13,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ invoiceNum
 
   try {
     const results = await batchGet([
-      { moduleKey: 'sales',        range: 'A:R', label: 'sales' },
+      { moduleKey: 'sales',        range: 'A:AA', label: 'sales' },
       { moduleKey: 'replacement',  range: 'A:M', label: 'replacement' },
       { moduleKey: 'return_refund', range: 'A:M', label: 'return_refund' },
     ]);
@@ -32,20 +32,32 @@ export async function GET(_: Request, { params }: { params: Promise<{ invoiceNum
 
     const s = salesRows[0];
     const sale = {
-      invoiceNumber:      s[1],
-      saleStatus:         s[2],
-      customerName:       s[3],
-      customerPhone:      s[4],
-      customerAddress:    s[5],
-      totalItems:         s[6],
-      itemNames:          s[7],
-      sizesChosen:        s[8],
-      totalAmount:        s[9],
-      paymentStatus:      s[10],
-      modeOfPayment:      s[11],
-      transactionId:      s[12],
-      createdAt:          s[13],
-      createdBy:          s[14],
+      invoiceNumber:        s[1],
+      saleStatus:           s[2],
+      customerName:         s[3],
+      customerPhone:        s[4],
+      customerAddress:      s[5],
+      totalItems:           s[6],
+      itemNames:            s[7],
+      sizesChosen:          s[8],
+      itemPrices:           s[9],
+      totalAmount:          s[10],
+      paymentStatus:        s[11],
+      modeOfPayment:        s[12],
+      transactionId:        s[13],
+      createdAt:            s[14],
+      createdBy:            s[15],
+      updatedAt:            s[16],
+      updatedBy:            s[17],
+      version:              s[18],
+      deliveryStatus:       s[19],
+      deliveryChargeToggle: s[20],
+      deliveryChargeAmount: s[21],
+      fulfilmentStatus:     s[22],
+      fulfilmentSource:     s[23],
+      saleClosedBy:         s[24],
+      discount:             s[25],
+      customerEmail:        s[26] ?? '',
     };
 
     const replacements = repRows.map((r) => ({

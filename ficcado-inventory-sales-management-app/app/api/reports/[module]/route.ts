@@ -12,10 +12,15 @@ export const dynamic = 'force-dynamic';
 const MODULE_HEADERS: Record<string, string[]> = {
   items: ['S.No', 'Item Name', 'Item Type', 'Price', 'Available Sizes', 'Created By', 'Created At', 'Updated By', 'Updated At', 'Status'],
   inventory: ['S.No', 'Item Name', 'Size', 'Total Quantity Available', 'Added By', 'Updated At', 'Updated By', 'Created At'],
-  warehouse: ['S.No', 'Warehouse Location', 'Handler Name', 'Items Available', 'Sizes Available'],
-  sales: ['S.No', 'Invoice Number', 'Sale Status', 'Customer Name', 'Customer Phone', 'Customer Address', 'Total Items', 'Item Names', 'Sizes Chosen', 'Total Amount', 'Payment Status', 'Mode of Payment', 'Transaction ID', 'Created At', 'Created By', 'Updated At', 'Updated By'],
-  replacement: ['S.No', 'Invoice Number', 'Total Items', 'Last Items', 'Last Sizes', 'New Items', 'New Sizes', 'Invoice Status', 'Created At', 'Created By', 'Updated At', 'Updated By'],
-  return_refund: ['S.No', 'Invoice Number', 'Verification Status', 'Refund Status', 'Refund Amount', 'Refund Completed At', 'Transaction ID', 'Mode of Refund', 'Created At', 'Created By', 'Updated At', 'Updated By'],
+  warehouse: ['S.No', 'Warehouse Location', 'Handler Name', 'Item Name', 'Size', 'Quantity', 'Created By', 'Created At', 'Updated By', 'Updated At'],
+  sales: ['S.No', 'Invoice Number', 'Sale Status', 'Customer Name', 'Customer Phone', 'Customer Address', 'Total Items', 'Item Names', 'Sizes Chosen', 'Item Prices', 'Total Amount', 'Payment Status', 'Mode of Payment', 'Transaction ID', 'Created At', 'Created By', 'Updated At', 'Updated By', 'Version', 'Delivery Status', 'Delivery Charge Toggle', 'Delivery Charge Amount', 'Fulfilment Status', 'Fulfilment Source', 'Sale Closed By', 'Discount', 'Customer Email'],
+  replacement: ['S.No', 'Invoice Number', 'Total Items', 'Last Items', 'Last Sizes', 'New Items', 'New Sizes', 'Invoice Status', 'Disposition', 'Restock Destination', 'Created At', 'Created By', 'Updated At', 'Updated By', 'Version'],
+  return_refund: ['S.No', 'Invoice Number', 'Verification Status', 'Refund Status', 'Refund Amount', 'Refund Completed At', 'Transaction ID', 'Mode of Refund', 'Disposition', 'Restock Destination', 'Created At', 'Created By', 'Updated At', 'Updated By'],
+  customer_info: ['S.No', 'Customer Name', 'Phone Number', 'Address', 'Email ID', 'Total Orders', 'Invoice Numbers', 'Created At', 'Created By', 'Updated At', 'Updated By'],
+  inventory_history: ['S.No', 'Item Name', 'Size', 'Quantity Change', 'Affected Sheet', 'Handler', 'Transaction Type', 'Related Invoice', 'Resulting Balance', 'Created By', 'Created At', 'Notes'],
+  damaged_products: ['S.No', 'Invoice Number', 'Item Name', 'Size', 'Quantity', 'Customer Name', 'Reason Notes', 'Logged By', 'Logged At'],
+  notes: ['S.No', 'Note Content', 'Created By', 'Created At', 'Updated By', 'Updated At'],
+  activity_logs: ['S.No', 'Admin Name', 'Action', 'Module', 'Module Key', 'Record ID', 'Logged At', 'Message'],
 };
 
 const DISPLAY_NAMES: Record<string, string> = {
@@ -25,6 +30,11 @@ const DISPLAY_NAMES: Record<string, string> = {
   sales: 'Sales Management',
   replacement: 'Replacement Management',
   return_refund: 'Return & Refund Management',
+  customer_info: 'Customer Information',
+  inventory_history: 'Inventory History',
+  damaged_products: 'Damaged Products',
+  notes: 'Notes Management',
+  activity_logs: 'Activity Logs',
 };
 
 export async function GET(request: Request, { params }: { params: Promise<{ module: string }> }) {
@@ -44,7 +54,19 @@ export async function GET(request: Request, { params }: { params: Promise<{ modu
     let dataRows = rows.slice(1); // skip header
 
     // Date filtering on the Created At column (index varies by module)
-    const createdAtIdx: Record<string, number> = { items: 6, inventory: 7, warehouse: -1, sales: 13, replacement: 8, return_refund: 8 };
+    const createdAtIdx: Record<string, number> = {
+      items: 6,
+      inventory: 7,
+      warehouse: 7,
+      sales: 13,
+      replacement: 10,
+      return_refund: 10,
+      customer_info: 7,
+      inventory_history: 10,
+      damaged_products: 8,
+      notes: 3,
+      activity_logs: 6,
+    };
     const dateCol = createdAtIdx[moduleKey];
     if (dateCol !== -1 && (from || to)) {
       dataRows = dataRows.filter((row) => {

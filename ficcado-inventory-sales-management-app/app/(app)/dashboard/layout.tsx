@@ -12,6 +12,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import AppSidebar from '@/components/AppSidebar';
 import LoadingGecko from '@/components/LoadingGecko';
+import SessionTimeoutModal from '@/components/SessionTimeoutModal';
 
 interface SessionAdmin {
   name:  string;
@@ -48,6 +49,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="app-shell">
+      <SessionTimeoutModal />
       <AppSidebar
         adminName={admin.name}
         adminRole={admin.role}

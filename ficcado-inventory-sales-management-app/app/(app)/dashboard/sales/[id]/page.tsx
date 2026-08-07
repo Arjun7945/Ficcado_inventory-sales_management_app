@@ -41,6 +41,7 @@ interface Sale {
   deliveryChargeAmount: number;
   fulfilmentStatus:     string;
   fulfilmentSource:     string;
+  saleClosedBy?:        string;
 }
 
 export default function SaleDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -401,13 +402,7 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
           </div>
         </div>
 
-        <div className="grid-form-3" style={{ marginBottom: 16 }}>
-          <div>
-            <div className="form-label" style={{ fontSize: 11 }}>PURCHASED ITEM(S)</div>
-            <div style={{ fontWeight: 700, fontSize: 14 }}>{sale?.itemNames}</div>
-            <div style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>Sizes: {sale?.sizes}</div>
-          </div>
-
+        <div className="grid-form-2" style={{ marginBottom: 16 }}>
           <div>
             <div className="form-label" style={{ fontSize: 11 }}>FULFILMENT SOURCE</div>
             <span className="badge badge-info">{sale?.fulfilmentSource}</span>
@@ -419,12 +414,134 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
           </div>
         </div>
 
-        <div>
-          <div className="form-label" style={{ fontSize: 11 }}>TOTAL AMOUNT</div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-brand-primary)' }} className="tabular-nums">
-            ₹{parseFloat(sale?.totalAmount || '0').toLocaleString('en-IN')}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-border)', paddingTop: 12 }}>
+          <div>
+            <div className="form-label" style={{ fontSize: 11 }}>TOTAL AMOUNT</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-brand-primary)' }} className="tabular-nums">
+              ₹{parseFloat(sale?.totalAmount || '0').toLocaleString('en-IN')}
+            </div>
           </div>
+
+          {sale?.saleClosedBy && (
+            <div style={{ textAlign: 'right' }}>
+              <div className="form-label" style={{ fontSize: 11 }}>SALE CLOSED BY</div>
+              <span className="badge badge-success" style={{ fontSize: 12, fontWeight: 700 }}>
+                👤 {sale.saleClosedBy}
+              </span>
+            </div>
+          )}
         </div>
+      </div>
+
+      {/* Purchased Items Section */}
+      <div className="card" style={{ marginBottom: 24, opacity: isLocked ? 0.85 : 1 }}>
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, marginBottom: 16, borderBottom: '1px solid var(--color-border)', paddingBottom: 8 }}>
+          Purchased Items
+        </h2>
+
+        {(() => {
+          const names = (sale?.itemNames || '').split(',').map((n) => n.trim()).filter(Boolean);
+          const sizes = (sale?.sizes || '').split(',').map((s) => s.trim()).filter(Boolean);
+          const prices = ((sale as any)?.itemPrices || '').split(',').map((p: string) => parseFloat(p.trim()) || 0);
+
+          const map = new Map<string, { name: string; size: string; qty: number; unitPrice: number }>();
+          for (let i = 0; i < names.length; i++) {
+            const sz = sizes[i] ?? sizes[0] ?? '—';
+            const pr = prices[i] ?? (prices.length === 1 ? prices[0] : 0);
+            const key = `${names[i]}:${sz}:${pr}`;
+            const existing = map.get(key);
+            if (existing) {
+              existing.qty += 1;
+            } else {
+              map.set(key, { name: names[i], size: sz, qty: 1, unitPrice: pr });
+            }
+          }
+          const lineItems = Array.from(map.values());
+          const grandTotal = parseFloat(sale?.totalAmount || '0') || 0;
+          const discount = (sale as any)?.discount || 0;
+          const delivCharge = sale?.deliveryChargeToggle ? (sale?.deliveryChargeAmount || 0) : 0;
+          const rawItemsSubtotal = lineItems.reduce((sum, item) => sum + (item.qty * item.unitPrice), 0);
+          const itemsSubtotal = rawItemsSubtotal > 0 ? rawItemsSubtotal : (grandTotal - delivCharge + discount);
+
+          return (
+            <div>
+              <div style={{ overflowX: 'auto', marginBottom: 16 }}>
+                <table className="table" style={{ width: '100%', fontSize: 13 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left' }}>Item</th>
+                      <th style={{ textAlign: 'center' }}>Size</th>
+                      <th style={{ textAlign: 'center' }}>Quantity</th>
+                      <th style={{ textAlign: 'right' }}>Price per Item</th>
+                      <th style={{ textAlign: 'right' }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lineItems.map((item, idx) => {
+                      const totalPieces = lineItems.reduce((sum, i) => sum + i.qty, 0);
+                      const fallbackPrice = totalPieces > 0 ? itemsSubtotal / totalPieces : 0;
+                      const price = item.unitPrice > 0 ? item.unitPrice : fallbackPrice;
+                      const total = price * item.qty;
+                      return (
+                        <tr key={idx}>
+                          <td style={{ fontWeight: 600 }}>{item.name}</td>
+                          <td style={{ textAlign: 'center' }}>
+                            <span className="badge badge-neutral" style={{ fontSize: 11 }}>{item.size}</span>
+                          </td>
+                          <td style={{ textAlign: 'center', fontWeight: 600 }}>{item.qty}</td>
+                          <td style={{ textAlign: 'right' }} className="tabular-nums">₹{price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 700 }} className="tabular-nums">₹{total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Final Summary Breakdown */}
+              <div style={{
+                borderTop: '1px solid var(--color-border)',
+                paddingTop: 12,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'flex-end',
+                gap: 6,
+                fontSize: 13,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', width: 260, color: 'var(--color-ink-muted)' }}>
+                  <span>Subtotal:</span>
+                  <span className="tabular-nums" style={{ fontWeight: 600, color: 'var(--color-ink)' }}>₹{itemsSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+                {discount > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', width: 260, color: 'var(--color-error)' }}>
+                    <span>Discount:</span>
+                    <span className="tabular-nums" style={{ fontWeight: 600 }}>-₹{discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
+                {delivCharge > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', width: 260, color: 'var(--color-ink-muted)' }}>
+                    <span>Delivery Charge:</span>
+                    <span className="tabular-nums" style={{ fontWeight: 600, color: 'var(--color-ink)' }}>+₹{delivCharge.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  width: 260,
+                  borderTop: '1px solid var(--color-border)',
+                  paddingTop: 8,
+                  marginTop: 4,
+                  fontSize: 15,
+                  fontWeight: 700,
+                  color: 'var(--color-brand-primary)',
+                }}>
+                  <span>Total Amount:</span>
+                  <span className="tabular-nums">₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Edit Form */}

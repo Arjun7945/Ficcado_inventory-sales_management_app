@@ -68,13 +68,56 @@ export async function GET() {
   }
 
   try {
-    const rows = await readAllRows('admin_info');
-    const admins = rows
+    const [adminRows, salesRows] = await Promise.all([
+      readAllRows('admin_info'),
+      readAllRows('sales').catch(() => []),
+    ]);
+
+    const salesList = salesRows.slice(1);
+
+    const admins = adminRows
       .slice(1) // skip header
-      .map((row, i) => rowToAdmin(row, i + 2)) // +2: 1-indexed + skip header
+      .map((row, i) => {
+        const a = rowToAdmin(row, i + 2);
+        const normName = a.adminName.trim().toLowerCase();
+
+        let salesCreated = 0;
+        let salesClosed = 0;
+        let revenueGenerated = 0;
+
+        for (const sRow of salesList) {
+          const createdBy = (sRow[15] ?? '').trim().toLowerCase();
+          const saleClosedBy = (sRow[24] ?? '').trim().toLowerCase();
+          const amount = parseFloat((sRow[10] ?? '0').replace(/[^0-9.]/g, '')) || 0;
+
+          if (createdBy === normName) {
+            salesCreated += 1;
+            revenueGenerated += amount;
+          }
+          if (saleClosedBy === normName) {
+            salesClosed += 1;
+          }
+        }
+
+        return {
+          ...a,
+          salesCreated,
+          salesClosed,
+          revenueGenerated,
+        };
+      })
       .filter((a) => a.adminName); // filter empty rows
 
-    return Response.json({ admins });
+    // Deduplicate by adminName to guarantee unique objects even if sheet contains duplicate rows
+    const seenNames = new Set<string>();
+    const uniqueAdmins = admins.filter((a) => {
+      const norm = a.adminName.trim().toLowerCase();
+      if (!norm || seenNames.has(norm)) return false;
+      seenNames.add(norm);
+      return true;
+    });
+
+    return Response.json({ admins: uniqueAdmins });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return Response.json(
@@ -114,14 +157,31 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check for duplicate email
+    // Check for duplicate name or email with explicit detailed feedback
     const rows = await readAllRows('admin_info');
-    const duplicate = rows.slice(1).find(
-      (row) => row[COL.email]?.toLowerCase() === emailId.toLowerCase()
+    const existingName = rows.slice(1).find(
+      (row) => (row[COL.adminName] ?? '').trim().toLowerCase() === adminName.trim().toLowerCase()
     );
-    if (duplicate) {
+    const existingEmail = rows.slice(1).find(
+      (row) => (row[COL.email] ?? '').trim().toLowerCase() === emailId.trim().toLowerCase()
+    );
+
+    if (existingName) {
       return Response.json(
-        { error: `An admin with email '${emailId}' already exists.` },
+        {
+          error: `Cannot create admin '${adminName}': An admin with this exact name already exists in the system.`,
+          detail: `Admin names must be unique across all system accounts to prevent order assignment, warehouse allocation, and activity logging conflicts. Please use a different name for this admin account.`,
+        },
+        { status: 409 }
+      );
+    }
+
+    if (existingEmail) {
+      return Response.json(
+        {
+          error: `Cannot create admin: An account with email address '${emailId}' already exists.`,
+          detail: `Email addresses must be unique to guarantee secure login authentication and notification delivery. Please use a unique email address for this admin account.`,
+        },
         { status: 409 }
       );
     }

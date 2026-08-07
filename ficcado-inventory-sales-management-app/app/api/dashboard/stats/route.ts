@@ -10,7 +10,7 @@ import { readAllRows } from '@/lib/google/moduleSheet';
 
 export const dynamic = 'force-dynamic';
 
-const SALES_COL = { saleDate: 13, totalAmount: 9, saleStatus: 2 };       // Created At, Total Amount, Sale Status
+const SALES_COL = { saleDate: 14, totalAmount: 10, saleStatus: 2 };       // Created At (Col O / Index 14), Total Amount (Col K / Index 10), Sale Status (Col C / Index 2)
 const REPLACEMENT_COL = { invoiceStatus: 7 };
 const RETURN_COL = { refundStatus: 3 };
 const INVENTORY_COL = { quantity: 3 }; // Total Quantity Available
@@ -32,7 +32,9 @@ export async function GET() {
   }
 
   try {
-    const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const now = new Date();
+    const todayISO = now.toISOString().slice(0, 10); // YYYY-MM-DD
+    const todayLocal = now.toLocaleDateString('en-CA'); // YYYY-MM-DD local
 
     const [salesRows, itemsRows, inventoryRows, replacementRows, refundRows] = await Promise.all([
       safeRead('sales'),
@@ -42,14 +44,30 @@ export async function GET() {
       safeRead('return_refund'),
     ]);
 
-    // Today's sales
+    // Today's sales & revenue calculation
     let todaySales = 0;
     let todayRevenue = 0;
     for (const row of salesRows.slice(1)) {
-      const createdAt = row[SALES_COL.saleDate] ?? '';
-      if (createdAt.startsWith(todayStr)) {
+      const createdAt = (row[SALES_COL.saleDate] ?? '').trim();
+      if (!createdAt) continue;
+
+      let isToday = false;
+      if (createdAt.startsWith(todayISO) || createdAt.startsWith(todayLocal)) {
+        isToday = true;
+      } else {
+        const dateObj = new Date(createdAt);
+        if (!isNaN(dateObj.getTime())) {
+          const isoDate = dateObj.toISOString().slice(0, 10);
+          const localDate = dateObj.toLocaleDateString('en-CA');
+          if (isoDate === todayISO || localDate === todayLocal) {
+            isToday = true;
+          }
+        }
+      }
+
+      if (isToday) {
         todaySales++;
-        const amount = parseFloat(row[SALES_COL.totalAmount] ?? '0');
+        const amount = parseFloat((row[SALES_COL.totalAmount] ?? '0').replace(/[^0-9.]/g, ''));
         if (!isNaN(amount)) todayRevenue += amount;
       }
     }

@@ -5,7 +5,7 @@
  * Activity Log viewer — shows human-readable activity timeline.
  */
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
 
@@ -35,8 +35,6 @@ export default function ActivityPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <LoadingGecko size="full" label="Loading activity history…" />;
-
   return (
     <div>
       <div className="page-header">
@@ -49,7 +47,11 @@ export default function ActivityPage() {
       {error && <ErrorMessage message={error.message} variant="error" />}
 
       <div className="card">
-        {logs.length === 0 ? (
+        {loading ? (
+          <div style={{ padding: 48, textAlign: 'center' }}>
+            <LoadingGecko label="Loading activity audit trail…" />
+          </div>
+        ) : logs.length === 0 ? (
           <div className="empty-state">
             <div style={{ fontSize: 28 }}>◉</div>
             <div className="empty-state-title">No activity recorded yet</div>

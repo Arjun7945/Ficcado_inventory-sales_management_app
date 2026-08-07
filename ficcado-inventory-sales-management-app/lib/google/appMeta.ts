@@ -16,25 +16,57 @@
 import { getSheetsClient } from './sheetsClient';
 import { getBootstrapSpreadsheetId, APP_META_TAB } from './bootstrap';
 
-/** Read all AppMeta rows and return as a plain key→value map. */
-async function readAllMeta(): Promise<Map<string, string>> {
-  const { spreadsheetId } = await getBootstrapSpreadsheetId();
-  const sheets = await getSheetsClient();
+/** In-memory cache for AppMeta tab */
+let _metaCache: Map<string, string> | null = null;
+let _metaCacheTimestamp = 0;
+const META_CACHE_TTL_MS = 30_000; // 30 seconds TTL
+let _pendingMetaPromise: Promise<Map<string, string>> | null = null;
 
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: `${APP_META_TAB}!A:C`,
-  });
+/** Bust the AppMeta cache */
+export function bustAppMetaCache(): void {
+  _metaCache = null;
+  _metaCacheTimestamp = 0;
+  _pendingMetaPromise = null;
+}
 
-  const rows = res.data.values ?? [];
-  const map = new Map<string, string>();
-
-  for (let i = 1; i < rows.length; i++) {
-    const [key, value] = rows[i];
-    if (key) map.set(String(key), value ? String(value) : '');
+/** Read all AppMeta rows and return as a plain key→value map with TTL caching & single-flight deduplication. */
+async function readAllMeta(forceFresh = false): Promise<Map<string, string>> {
+  const now = Date.now();
+  if (!forceFresh && _metaCache && now - _metaCacheTimestamp < META_CACHE_TTL_MS) {
+    return _metaCache;
   }
 
-  return map;
+  if (_pendingMetaPromise) {
+    return _pendingMetaPromise;
+  }
+
+  _pendingMetaPromise = (async () => {
+    try {
+      const { spreadsheetId } = await getBootstrapSpreadsheetId();
+      const sheets = await getSheetsClient();
+
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `${APP_META_TAB}!A:C`,
+      });
+
+      const rows = res.data.values ?? [];
+      const map = new Map<string, string>();
+
+      for (let i = 1; i < rows.length; i++) {
+        const [key, value] = rows[i];
+        if (key) map.set(String(key), value ? String(value) : '');
+      }
+
+      _metaCache = map;
+      _metaCacheTimestamp = Date.now();
+      return map;
+    } finally {
+      _pendingMetaPromise = null;
+    }
+  })();
+
+  return _pendingMetaPromise;
 }
 
 /**
@@ -63,6 +95,7 @@ export async function getAppMetaMulti(
 /**
  * Set (upsert) a key/value pair in AppMeta.
  * If the key already exists, updates in place. Otherwise appends.
+ * Automatically updates in-memory cache.
  */
 export async function setAppMeta(key: string, value: string): Promise<void> {
   const { spreadsheetId } = await getBootstrapSpreadsheetId();
@@ -102,6 +135,14 @@ export async function setAppMeta(key: string, value: string): Promise<void> {
       valueInputOption: 'RAW',
       requestBody: { values: [[key, value, updatedAt]] },
     });
+  }
+
+  // Update in-memory cache directly or bust
+  if (_metaCache) {
+    _metaCache.set(key, value);
+    _metaCacheTimestamp = Date.now();
+  } else {
+    bustAppMetaCache();
   }
 }
 
