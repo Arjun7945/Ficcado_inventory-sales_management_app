@@ -4,12 +4,8 @@
  * The internal SDK that every other module in the app MUST use to resolve
  * its target sheet. No module may hardcode a spreadsheet ID or tab name.
  *
- * Usage:
- *   const { spreadsheetId, tabName } = await getModuleSheet('sales');
- *   const results = await batchGet([
- *     { moduleKey: 'sales', range: 'A:P' },
- *     { moduleKey: 'replacement', range: 'A:K' },
- *   ]);
+ * Performance-optimized for 10-15 concurrent admin users via in-memory 30s TTL
+ * caching, single-flight promise coalescing, and batchUpdate API support.
  */
 
 import { getSheetsClient } from './sheetsClient';
@@ -23,8 +19,7 @@ export interface ModuleSheetRef {
 
 /**
  * Resolve the spreadsheet ID and tab name for a given module key.
- * Throws a descriptive error if the module is not configured — never silently
- * falls back to a hardcoded value.
+ * Throws a descriptive error if the module is not configured.
  */
 export async function getModuleSheet(moduleKey: string): Promise<ModuleSheetRef> {
   const config = await getSheetConfig();
@@ -62,16 +57,13 @@ export interface BatchGetResult {
 
 /**
  * Fetch multiple ranges from (potentially) different spreadsheets in batches.
- *
- * Groups requests by spreadsheetId so that ranges from the same spreadsheet
- * are fetched in a single batchGet API call.
+ * Groups requests by spreadsheetId so ranges are fetched in a single API call.
  */
 export async function batchGet(requests: BatchGetRequest[]): Promise<BatchGetResult[]> {
   if (requests.length === 0) return [];
 
   const sheets = await getSheetsClient();
 
-  // Resolve all module keys to their sheet references
   const resolved = await Promise.all(
     requests.map(async (req) => {
       const ref = await getModuleSheet(req.moduleKey);
@@ -79,7 +71,6 @@ export async function batchGet(requests: BatchGetRequest[]): Promise<BatchGetRes
     })
   );
 
-  // Group by spreadsheetId
   const groups = new Map<string, typeof resolved>();
   for (const r of resolved) {
     const group = groups.get(r.spreadsheetId) ?? [];
@@ -111,7 +102,6 @@ export async function batchGet(requests: BatchGetRequest[]): Promise<BatchGetRes
     }
   }
 
-  // Return in original request order
   const resultMap = new Map(results.map((r) => [`${r.moduleKey}:${r.label ?? ''}`, r]));
   return requests.map((req) => {
     const key = `${req.moduleKey}:${req.label ?? ''}`;
@@ -187,16 +177,64 @@ export async function updateRow(
   });
 }
 
+export interface BatchUpdateRowItem {
+  moduleKey: string;
+  rowIndex: number;
+  values: (string | number | boolean | null)[];
+}
+
 /**
- * Delete a row by clearing it (Google Sheets API doesn't shift rows on
- * clear, so we use batchUpdate to delete the row entirely).
+ * Update multiple rows across one or more module sheets in batched HTTP calls.
+ * Reduces 5-10 sequential Google Sheets updates down to 1 network request per spreadsheet ID!
+ */
+export async function batchUpdateRows(updates: BatchUpdateRowItem[]): Promise<void> {
+  if (updates.length === 0) return;
+
+  const sheets = await getSheetsClient();
+  const moduleKeys = new Set(updates.map((u) => u.moduleKey));
+  moduleKeys.forEach((key) => bustRowsCache(key));
+
+  const resolved = await Promise.all(
+    updates.map(async (u) => {
+      const ref = await getModuleSheet(u.moduleKey);
+      return { ...u, ...ref };
+    })
+  );
+
+  const groups = new Map<string, typeof resolved>();
+  for (const r of resolved) {
+    const group = groups.get(r.spreadsheetId) ?? [];
+    group.push(r);
+    groups.set(r.spreadsheetId, group);
+  }
+
+  for (const [spreadsheetId, group] of groups) {
+    const data = group.map((item) => {
+      const lastCol = columnLetter(item.values.length);
+      return {
+        range: `${item.tabName}!A${item.rowIndex}:${lastCol}${item.rowIndex}`,
+        values: [item.values],
+      };
+    });
+
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        valueInputOption: 'RAW',
+        data,
+      },
+    });
+  }
+}
+
+/**
+ * Delete a row by clearing it (using batchUpdate to delete the row entirely).
  */
 export async function deleteRow(moduleKey: string, rowIndex: number): Promise<void> {
   bustRowsCache(moduleKey);
   const { spreadsheetId, tabName } = await getModuleSheet(moduleKey);
   const sheets = await getSheetsClient();
 
-  // First get the sheet ID (gid) for this tab
   const meta = await sheets.spreadsheets.get({ spreadsheetId });
   const sheet = meta.data.sheets?.find(
     (s) => s.properties?.title === tabName
@@ -216,7 +254,7 @@ export async function deleteRow(moduleKey: string, rowIndex: number): Promise<vo
             range: {
               sheetId,
               dimension: 'ROWS',
-              startIndex: rowIndex - 1, // 0-indexed
+              startIndex: rowIndex - 1,
               endIndex: rowIndex,
             },
           },
@@ -228,8 +266,7 @@ export async function deleteRow(moduleKey: string, rowIndex: number): Promise<vo
 
 /**
  * Read all rows from a module's sheet (including header).
- * Returns raw string[][] — caller is responsible for parsing.
- * Uses an in-memory 30-second TTL cache and single-flight promise coalescing for maximum speed.
+ * Uses an in-memory 30-second TTL cache and single-flight promise coalescing for concurrent admins.
  */
 export async function readAllRows(moduleKey: string, forceFresh = false): Promise<string[][]> {
   const now = Date.now();

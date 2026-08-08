@@ -2,41 +2,17 @@
  * app/api/replacement/route.ts
  * GET  /api/replacement — list all replacements
  * POST /api/replacement — create replacement from an existing sale
+ *
+ * Updated with header-map column resolution for position-independent read/write safety.
  */
 
 import { requireAuth } from '@/lib/auth';
 import { readAllRows, appendRows } from '@/lib/google/moduleSheet';
+import { buildHeaderMap, getCellByHeader, formatRowFromHeaderMap } from '@/lib/google/headerUtils';
 import { validate, ReplacementSchema } from '@/lib/validation';
 import { logActivity } from '@/lib/activityLogger';
 
 export const dynamic = 'force-dynamic';
-
-const COL = {
-  sno:                                   0,
-  invoiceNumber:                         1,
-  totalItems:                            2,
-  lastItems:                             3,
-  lastSizes:                             4,
-  newItems:                              5,
-  newSizes:                              6,
-  invoiceStatus:                         7,
-  disposition:                           8,
-  restockDestination:                    9,
-  removedItemFromLastPurchase:           10,
-  sizesOfRemovedItemFromLastPurchase:    11,
-  numberOfRemovedItemFromLastPurchase:   12,
-  newFinalItemsSelected:                 13,
-  newFinalItemsSizes:                    14,
-  numberOfNewFinalItems:                 15,
-  newFinalItemsPricesEach:               16,
-  newFinalItemsTotalAmount:              17,
-  newStockSource:                        18,
-  createdAt:                             19,
-  createdBy:                             20,
-  updatedAt:                             21,
-  updatedBy:                             22,
-  version:                               23,
-};
 
 export async function GET() {
   try { await requireAuth(); }
@@ -44,32 +20,36 @@ export async function GET() {
 
   try {
     const rows = await readAllRows('replacement');
+    if (rows.length === 0) return Response.json({ replacements: [] });
+
+    const headerMap = buildHeaderMap(rows[0]);
     const replacements = rows.slice(1).map((row, i) => ({
       rowIndex:                            i + 2,
-      invoiceNumber:                       row[COL.invoiceNumber]                       ?? '',
-      totalItems:                          row[COL.totalItems]                          ?? '',
-      lastItems:                           row[COL.lastItems]                           ?? '',
-      lastSizes:                           row[COL.lastSizes]                           ?? '',
-      newItems:                            row[COL.newItems]                            ?? '',
-      newSizes:                            row[COL.newSizes]                            ?? '',
-      invoiceStatus:                       row[COL.invoiceStatus]                       ?? '',
-      disposition:                         row[COL.disposition]                         ?? '',
-      restockDestination:                  row[COL.restockDestination]                  ?? '',
-      removedItemFromLastPurchase:         row[COL.removedItemFromLastPurchase]         ?? '',
-      sizesOfRemovedItemFromLastPurchase:  row[COL.sizesOfRemovedItemFromLastPurchase]  ?? '',
-      numberOfRemovedItemFromLastPurchase: row[COL.numberOfRemovedItemFromLastPurchase] ?? '',
-      newFinalItemsSelected:               row[COL.newFinalItemsSelected]               ?? '',
-      newFinalItemsSizes:                  row[COL.newFinalItemsSizes]                  ?? '',
-      numberOfNewFinalItems:               row[COL.numberOfNewFinalItems]               ?? '',
-      newFinalItemsPricesEach:             row[COL.newFinalItemsPricesEach]             ?? '',
-      newFinalItemsTotalAmount:            row[COL.newFinalItemsTotalAmount]            ?? '',
-      newStockSource:                      row[COL.newStockSource]                      ?? '',
-      createdAt:                           row[COL.createdAt]                           ?? '',
-      createdBy:                           row[COL.createdBy]                           ?? '',
-      updatedAt:                           row[COL.updatedAt]                           ?? '',
-      updatedBy:                           row[COL.updatedBy]                           ?? '',
-      version:                             row[COL.version]                             ?? '1',
+      invoiceNumber:                       getCellByHeader(row, headerMap, 'Invoice Number'),
+      totalItems:                          getCellByHeader(row, headerMap, 'Total Number of Items Purchased'),
+      lastItems:                           getCellByHeader(row, headerMap, 'Last Purchased Item(s)'),
+      lastSizes:                           getCellByHeader(row, headerMap, 'Last Purchased Item(s) Size'),
+      newItems:                            getCellByHeader(row, headerMap, 'New Item(s)'),
+      newSizes:                            getCellByHeader(row, headerMap, 'New Item(s) Size'),
+      invoiceStatus:                       getCellByHeader(row, headerMap, 'Invoice Status'),
+      disposition:                         getCellByHeader(row, headerMap, 'Disposition of Old Items'),
+      restockDestination:                  getCellByHeader(row, headerMap, 'Restock Destination'),
+      removedItemFromLastPurchase:         getCellByHeader(row, headerMap, 'Removed Item from Last Purchase'),
+      sizesOfRemovedItemFromLastPurchase:  getCellByHeader(row, headerMap, 'Sizes of Removed Item from Last Purchase'),
+      numberOfRemovedItemFromLastPurchase: getCellByHeader(row, headerMap, 'Number of Removed Item from Last Purchase'),
+      newFinalItemsSelected:               getCellByHeader(row, headerMap, 'New Final Items Selected'),
+      newFinalItemsSizes:                  getCellByHeader(row, headerMap, 'New Final Items Sizes'),
+      numberOfNewFinalItems:               getCellByHeader(row, headerMap, 'Number of New Final Items'),
+      newFinalItemsPricesEach:             getCellByHeader(row, headerMap, 'New Final Items Prices Each'),
+      newFinalItemsTotalAmount:            getCellByHeader(row, headerMap, 'New Final Items Total Amount'),
+      newStockSource:                      getCellByHeader(row, headerMap, 'New Stock Source'),
+      createdAt:                           getCellByHeader(row, headerMap, 'Created At'),
+      createdBy:                           getCellByHeader(row, headerMap, 'Created By'),
+      updatedAt:                           getCellByHeader(row, headerMap, 'Updated At'),
+      updatedBy:                           getCellByHeader(row, headerMap, 'Updated By'),
+      version:                             getCellByHeader(row, headerMap, 'Version', '1'),
     })).filter((r) => r.invoiceNumber);
+
     return Response.json({ replacements });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -91,18 +71,35 @@ export async function POST(request: Request) {
             newItems, newItemsSizes, invoiceStatus } = data!;
 
     const rows = await readAllRows('replacement');
+    const headerRow = rows[0] || [
+      'S.No', 'Invoice Number', 'Total Number of Items Purchased', 'Last Purchased Item(s)', 'Last Purchased Item(s) Size',
+      'New Item(s)', 'New Item(s) Size', 'Invoice Status', 'Disposition of Old Items', 'Restock Destination',
+      'Removed Item from Last Purchase', 'Sizes of Removed Item from Last Purchase', 'Number of Removed Item from Last Purchase',
+      'New Final Items Selected', 'New Final Items Sizes', 'Number of New Final Items', 'New Final Items Prices Each',
+      'New Final Items Total Amount', 'New Stock Source', 'Created At', 'Created By', 'Updated At', 'Updated By', 'Version'
+    ];
+
     const sno = String(rows.length);
     const now = new Date().toISOString();
 
-    await appendRows('replacement', [[
-      sno, invoiceNumber, String(totalNumberOfItems),
-      Array.isArray(lastPurchasedItems) ? lastPurchasedItems.join(', ') : lastPurchasedItems,
-      Array.isArray(lastPurchasedItemsSizes) ? lastPurchasedItemsSizes.join(', ') : lastPurchasedItemsSizes,
-      Array.isArray(newItems) ? newItems.join(', ') : newItems,
-      Array.isArray(newItemsSizes) ? newItemsSizes.join(', ') : newItemsSizes,
-      invoiceStatus ?? 'Replacement Pending',
-      now, admin.name, now, admin.name, '1',
-    ]]);
+    const rowObj: Record<string, string> = {
+      'S.No': sno,
+      'Invoice Number': invoiceNumber,
+      'Total Number of Items Purchased': String(totalNumberOfItems),
+      'Last Purchased Item(s)': Array.isArray(lastPurchasedItems) ? lastPurchasedItems.join(', ') : lastPurchasedItems,
+      'Last Purchased Item(s) Size': Array.isArray(lastPurchasedItemsSizes) ? lastPurchasedItemsSizes.join(', ') : lastPurchasedItemsSizes,
+      'New Item(s)': Array.isArray(newItems) ? newItems.join(', ') : (newItems || ''),
+      'New Item(s) Size': Array.isArray(newItemsSizes) ? newItemsSizes.join(', ') : (newItemsSizes || ''),
+      'Invoice Status': invoiceStatus ?? 'Replacement Pending',
+      'Created At': now,
+      'Created By': admin.name,
+      'Updated At': now,
+      'Updated By': admin.name,
+      'Version': '1',
+    };
+
+    const formattedRow = formatRowFromHeaderMap(rowObj, headerRow);
+    await appendRows('replacement', [formattedRow]);
 
     await logActivity({ adminName: admin.name, action: 'created', module: 'Replacement Management', moduleKey: 'replacement', recordId: invoiceNumber });
     return Response.json({ success: true, message: `Replacement for ${invoiceNumber} created.` }, { status: 201 });

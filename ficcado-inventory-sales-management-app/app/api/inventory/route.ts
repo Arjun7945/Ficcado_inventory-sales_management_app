@@ -4,19 +4,18 @@
  * POST /api/inventory — add or update inventory entry (Items-sourced)
  */
 
-import { requireAuth } from '@/lib/auth';
+import { getAuthSession } from '@/lib/auth';
 import { readAllRows, appendRows, updateRow } from '@/lib/google/moduleSheet';
+import { buildHeaderMap, getCellByHeader, formatRowFromHeaderMap } from '@/lib/google/headerUtils';
 import { validate, InventorySchema } from '@/lib/validation';
 import { logActivity } from '@/lib/activityLogger';
 import { recordInventoryHistory } from '@/lib/inventoryHistory';
 
 export const dynamic = 'force-dynamic';
 
-const COL = { sno: 0, itemName: 1, size: 2, qty: 3, addedBy: 4, updatedAt: 5, updatedBy: 6, createdAt: 7 };
-
 export async function GET() {
-  try { await requireAuth(); }
-  catch (e) { if (e instanceof Response) return e; return Response.json({ error: 'Authentication required.' }, { status: 401 }); }
+  const auth = await getAuthSession();
+  if ('errorResponse' in auth) return auth.errorResponse;
 
   try {
     const [invRows, itemRows] = await Promise.all([
@@ -24,28 +23,40 @@ export async function GET() {
       readAllRows('items'),
     ]);
 
-    const inventory = invRows.slice(1).map((row, i) => {
-      const qtyNum = parseInt(row[COL.qty] ?? '0', 10) || 0;
-      return {
-        rowIndex:      i + 2,
-        sno:           row[COL.sno]       ?? '',
-        itemName:      row[COL.itemName]  ?? '',
-        size:          row[COL.size]      ?? '',
-        qty:           qtyNum,
-        addedBy:       row[COL.addedBy]   ?? '',
-        updatedAt:     row[COL.updatedAt] ?? '',
-        updatedBy:     row[COL.updatedBy] ?? '',
-        createdAt:     row[COL.createdAt] ?? '',
-        currentStatus: qtyNum > 0 ? 'In Stock' : 'Out of Stock',
-      };
-    }).filter((inv) => inv.itemName);
+    let inventory: any[] = [];
+    if (invRows.length > 0) {
+      const invMap = buildHeaderMap(invRows[0]);
+      inventory = invRows.slice(1).map((row, i) => {
+        const qtyNum = parseInt(getCellByHeader(row, invMap, 'Total Quantity Available', '0'), 10) || 0;
+        const itemName = getCellByHeader(row, invMap, 'Item Name');
+        return {
+          rowIndex:      i + 2,
+          sno:           getCellByHeader(row, invMap, 'S.No'),
+          itemName,
+          size:          getCellByHeader(row, invMap, 'Size'),
+          qty:           qtyNum,
+          addedBy:       getCellByHeader(row, invMap, 'Added By (Admin)'),
+          updatedAt:     getCellByHeader(row, invMap, 'Updated At'),
+          updatedBy:     getCellByHeader(row, invMap, 'Updated By (Admin)'),
+          createdAt:     getCellByHeader(row, invMap, 'Created At'),
+          currentStatus: qtyNum > 0 ? 'In Stock' : 'Out of Stock',
+        };
+      }).filter((inv) => inv.itemName);
+    }
 
-    // Get list of registered items with available sizes
-    const items = itemRows.slice(1).map((r) => ({
-      itemName: r[1] ?? '',
-      sizes:    r[4] ? r[4].split(/,\s*/).filter(Boolean) : ['XS', 'S', 'M', 'L', 'XL'],
-      status:   r[9] ?? 'In Stock',
-    })).filter((it) => it.itemName);
+    let items: any[] = [];
+    if (itemRows.length > 0) {
+      const itemMap = buildHeaderMap(itemRows[0]);
+      items = itemRows.slice(1).map((r) => {
+        const itemName = getCellByHeader(r, itemMap, 'Item Name');
+        const sizesStr = getCellByHeader(r, itemMap, 'Available Sizes');
+        return {
+          itemName,
+          sizes:  sizesStr ? sizesStr.split(/,\s*/).filter(Boolean) : ['XS', 'S', 'M', 'L', 'XL'],
+          status: getCellByHeader(r, itemMap, 'Current Status', 'In Stock'),
+        };
+      }).filter((it) => it.itemName);
+    }
 
     return Response.json({ inventory, items });
   } catch (err) {
@@ -55,9 +66,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  let admin;
-  try { admin = await requireAuth(); }
-  catch (e) { if (e instanceof Response) return e; return Response.json({ error: 'Authentication required.' }, { status: 401 }); }
+  const auth = await getAuthSession();
+  if ('errorResponse' in auth) return auth.errorResponse;
+  const admin = auth.admin;
 
   try {
     const body = await request.json();
@@ -71,8 +82,8 @@ export async function POST(request: Request) {
       readAllRows('items'),
     ]);
 
-    // Verify item exists in Items Management
-    const validItems = itemRows.slice(1).map((r) => (r[1] ?? '').trim()).filter(Boolean);
+    const itemMap = itemRows.length > 0 ? buildHeaderMap(itemRows[0]) : new Map();
+    const validItems = itemRows.slice(1).map((r) => getCellByHeader(r, itemMap, 'Item Name').trim()).filter(Boolean);
     if (!validItems.includes(itemName.trim())) {
       return Response.json(
         { error: `Item '${itemName}' does not exist in Items Management. Please select a valid item.` },
@@ -80,24 +91,33 @@ export async function POST(request: Request) {
       );
     }
 
+    const invHeaderRow = invRows[0] || ['S.No', 'Item Name', 'Size', 'Total Quantity Available', 'Added By (Admin)', 'Updated At', 'Updated By (Admin)', 'Created At'];
+    const invMap = buildHeaderMap(invHeaderRow);
+
     const now = new Date().toISOString();
 
-    // Check for existing entry (same item + size)
     const existingIdx = invRows.slice(1).findIndex(
-      (r) => r[COL.itemName]?.toLowerCase() === itemName.toLowerCase() && r[COL.size] === size
+      (r) => getCellByHeader(r, invMap, 'Item Name').toLowerCase() === itemName.toLowerCase() && getCellByHeader(r, invMap, 'Size') === size
     );
 
     if (existingIdx >= 0) {
-      // Update existing
       const rowIndex = existingIdx + 2;
       const row = invRows[existingIdx + 1];
-      const oldQty = parseInt(row[COL.qty] ?? '0', 10) || 0;
+      const oldQty = parseInt(getCellByHeader(row, invMap, 'Total Quantity Available', '0'), 10) || 0;
       const diff = totalQuantityAvailable - oldQty;
 
-      await updateRow('inventory', rowIndex, [
-        row[COL.sno], itemName, size, String(totalQuantityAvailable),
-        row[COL.addedBy] ?? admin.name, now, admin.name, row[COL.createdAt] ?? now,
-      ]);
+      const invObj = {
+        'S.No':                     getCellByHeader(row, invMap, 'S.No'),
+        'Item Name':                 itemName,
+        'Size':                      size,
+        'Total Quantity Available': String(totalQuantityAvailable),
+        'Added By (Admin)':          getCellByHeader(row, invMap, 'Added By (Admin)') || admin.name,
+        'Updated At':                now,
+        'Updated By (Admin)':        admin.name,
+        'Created At':                getCellByHeader(row, invMap, 'Created At') || now,
+      };
+
+      await updateRow('inventory', rowIndex, formatRowFromHeaderMap(invObj, invHeaderRow));
 
       if (diff !== 0) {
         await recordInventoryHistory({
@@ -116,9 +136,19 @@ export async function POST(request: Request) {
       return Response.json({ success: true, message: `Inventory for ${itemName} (${size}) updated to ${totalQuantityAvailable} piece(s).` });
     }
 
-    // Append new row
     const sno = String(invRows.length);
-    await appendRows('inventory', [[sno, itemName, size, String(totalQuantityAvailable), admin.name, now, admin.name, now]]);
+    const invObj = {
+      'S.No':                     sno,
+      'Item Name':                 itemName,
+      'Size':                      size,
+      'Total Quantity Available': String(totalQuantityAvailable),
+      'Added By (Admin)':          admin.name,
+      'Updated At':                now,
+      'Updated By (Admin)':        admin.name,
+      'Created At':                now,
+    };
+
+    await appendRows('inventory', [formatRowFromHeaderMap(invObj, invHeaderRow)]);
 
     if (totalQuantityAvailable > 0) {
       await recordInventoryHistory({

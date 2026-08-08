@@ -3,17 +3,14 @@
  * GET /api/dashboard/stats
  * Returns today's sales count, revenue, total items, low stock count,
  * pending replacements, and pending refunds.
+ * Refactored with getAuthSession and position-independent header mapping.
  */
 
-import { requireAuth } from '@/lib/auth';
+import { getAuthSession } from '@/lib/auth';
 import { readAllRows } from '@/lib/google/moduleSheet';
+import { buildHeaderMap, getCellByHeader } from '@/lib/google/headerUtils';
 
 export const dynamic = 'force-dynamic';
-
-const SALES_COL = { saleDate: 14, totalAmount: 10, saleStatus: 2 };       // Created At (Col O / Index 14), Total Amount (Col K / Index 10), Sale Status (Col C / Index 2)
-const REPLACEMENT_COL = { invoiceStatus: 7 };
-const RETURN_COL = { refundStatus: 3 };
-const INVENTORY_COL = { quantity: 3 }; // Total Quantity Available
 
 async function safeRead(moduleKey: string): Promise<string[][]> {
   try {
@@ -24,12 +21,8 @@ async function safeRead(moduleKey: string): Promise<string[][]> {
 }
 
 export async function GET() {
-  try {
-    await requireAuth();
-  } catch (authErr) {
-    if (authErr instanceof Response) return authErr;
-    return Response.json({ error: 'Authentication required.' }, { status: 401 });
-  }
+  const auth = await getAuthSession();
+  if ('errorResponse' in auth) return auth.errorResponse;
 
   try {
     const now = new Date();
@@ -47,28 +40,33 @@ export async function GET() {
     // Today's sales & revenue calculation
     let todaySales = 0;
     let todayRevenue = 0;
-    for (const row of salesRows.slice(1)) {
-      const createdAt = (row[SALES_COL.saleDate] ?? '').trim();
-      if (!createdAt) continue;
 
-      let isToday = false;
-      if (createdAt.startsWith(todayISO) || createdAt.startsWith(todayLocal)) {
-        isToday = true;
-      } else {
-        const dateObj = new Date(createdAt);
-        if (!isNaN(dateObj.getTime())) {
-          const isoDate = dateObj.toISOString().slice(0, 10);
-          const localDate = dateObj.toLocaleDateString('en-CA');
-          if (isoDate === todayISO || localDate === todayLocal) {
-            isToday = true;
+    if (salesRows.length > 0) {
+      const sMap = buildHeaderMap(salesRows[0]);
+      for (const row of salesRows.slice(1)) {
+        const createdAt = getCellByHeader(row, sMap, 'Created At');
+        if (!createdAt) continue;
+
+        let isToday = false;
+        if (createdAt.startsWith(todayISO) || createdAt.startsWith(todayLocal)) {
+          isToday = true;
+        } else {
+          const dateObj = new Date(createdAt);
+          if (!isNaN(dateObj.getTime())) {
+            const isoDate = dateObj.toISOString().slice(0, 10);
+            const localDate = dateObj.toLocaleDateString('en-CA');
+            if (isoDate === todayISO || localDate === todayLocal) {
+              isToday = true;
+            }
           }
         }
-      }
 
-      if (isToday) {
-        todaySales++;
-        const amount = parseFloat((row[SALES_COL.totalAmount] ?? '0').replace(/[^0-9.]/g, ''));
-        if (!isNaN(amount)) todayRevenue += amount;
+        if (isToday) {
+          todaySales++;
+          const amountStr = getCellByHeader(row, sMap, 'Total Amount');
+          const amount = parseFloat(amountStr.replace(/[^0-9.]/g, '')) || 0;
+          todayRevenue += amount;
+        }
       }
     }
 
@@ -77,25 +75,36 @@ export async function GET() {
 
     // Low stock (quantity == 0 in inventory)
     let lowStockCount = 0;
-    for (const row of inventoryRows.slice(1)) {
-      const qty = parseInt(row[INVENTORY_COL.quantity] ?? '0', 10);
-      if (!isNaN(qty) && qty === 0) lowStockCount++;
+    if (inventoryRows.length > 0) {
+      const invMap = buildHeaderMap(inventoryRows[0]);
+      for (const row of inventoryRows.slice(1)) {
+        const qtyStr = getCellByHeader(row, invMap, 'Total Quantity Available', '0');
+        const qty = parseInt(qtyStr, 10);
+        if (!isNaN(qty) && qty === 0) lowStockCount++;
+      }
     }
 
     // Pending replacements
     let pendingReplacement = 0;
-    for (const row of replacementRows.slice(1)) {
-      if ((row[REPLACEMENT_COL.invoiceStatus] ?? '').toLowerCase().includes('pending')) {
-        pendingReplacement++;
+    if (replacementRows.length > 0) {
+      const repMap = buildHeaderMap(replacementRows[0]);
+      for (const row of replacementRows.slice(1)) {
+        const status = getCellByHeader(row, repMap, 'Invoice Status');
+        if (status.toLowerCase().includes('pending') || status.toLowerCase().includes('approved') || status.toLowerCase().includes('dispatched')) {
+          pendingReplacement++;
+        }
       }
     }
 
     // Pending refunds
     let pendingRefunds = 0;
-    for (const row of refundRows.slice(1)) {
-      const status = row[RETURN_COL.refundStatus] ?? '';
-      if (status.toLowerCase().includes('pending') || status.toLowerCase() === '') {
-        pendingRefunds++;
+    if (refundRows.length > 0) {
+      const refMap = buildHeaderMap(refundRows[0]);
+      for (const row of refundRows.slice(1)) {
+        const status = getCellByHeader(row, refMap, 'Refund Status');
+        if (status.toLowerCase().includes('pending') || status === '') {
+          pendingRefunds++;
+        }
       }
     }
 
@@ -112,7 +121,7 @@ export async function GET() {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return Response.json(
-      { error: "Couldn't load dashboard stats. Some sheets may not be configured yet.", detail: message },
+      { error: "Couldn't load dashboard stats.", detail: message },
       { status: 500 }
     );
   }

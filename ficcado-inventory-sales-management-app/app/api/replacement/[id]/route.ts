@@ -1,52 +1,18 @@
 /**
  * app/api/replacement/[id]/route.ts
  * GET, PUT, DELETE for a single replacement record.
- * Handles old-item disposition (Restock to Inventory/Handler vs Damaged Products),
- * new-item inventory deductions, and automatic Sales unlocking when completed.
+ * Refactored with dynamic header-map lookups & writes across all sheets.
+ * Updated with idempotent item calculation to prevent item duplication on Save Progress.
  */
 
 import { requireAuth } from '@/lib/auth';
 import { readAllRows, updateRow, deleteRow, appendRows } from '@/lib/google/moduleSheet';
+import { buildHeaderMap, getCellByHeader, formatRowFromHeaderMap } from '@/lib/google/headerUtils';
+import { calculateSaleTotalAmount } from '@/lib/salesPricing';
 import { logActivity } from '@/lib/activityLogger';
 import { recordInventoryHistory } from '@/lib/inventoryHistory';
 
 export const dynamic = 'force-dynamic';
-
-const COL_R = {
-  sno:                                   0,
-  invoiceNumber:                         1,
-  totalItems:                            2,
-  lastItems:                             3,
-  lastSizes:                             4,
-  newItems:                              5,
-  newSizes:                              6,
-  invoiceStatus:                         7,
-  disposition:                           8,
-  restockDestination:                    9,
-  removedItemFromLastPurchase:           10,
-  sizesOfRemovedItemFromLastPurchase:    11,
-  numberOfRemovedItemFromLastPurchase:   12,
-  newFinalItemsSelected:                 13,
-  newFinalItemsSizes:                    14,
-  numberOfNewFinalItems:                 15,
-  newFinalItemsPricesEach:               16,
-  newFinalItemsTotalAmount:            17,
-  newStockSource:                        18,
-  createdAt:                             19,
-  createdBy:                             20,
-  updatedAt:                             21,
-  updatedBy:                             22,
-  version:                               23,
-};
-
-const COL_S = {
-  sno: 0, invoiceNumber: 1, saleStatus: 2, customerName: 3,
-  totalItems: 6, itemNames: 7, sizes: 8, totalAmount: 10,
-  deliveryStatus: 19, fulfilmentStatus: 22, saleClosedBy: 24,
-};
-
-const COL_INV = { sno: 0, itemName: 1, size: 2, qty: 3, addedBy: 4, updatedAt: 5, updatedBy: 6, createdAt: 7 };
-const COL_W   = { sno: 0, location: 1, handler: 2, itemName: 3, size: 4, qty: 5, createdBy: 6, createdAt: 7, updatedBy: 8, updatedAt: 9 };
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -61,64 +27,86 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       readAllRows('admin_info'),
     ]);
 
-    const idx = rRows.slice(1).findIndex((r) => r[COL_R.invoiceNumber] === id);
+    if (rRows.length === 0) return Response.json({ error: 'Replacement record not found.' }, { status: 404 });
+
+    const rMap = buildHeaderMap(rRows[0]);
+    const idx  = rRows.slice(1).findIndex((r) => getCellByHeader(r, rMap, 'Invoice Number') === id);
     if (idx === -1) return Response.json({ error: 'Replacement record not found.' }, { status: 404 });
 
     const r = rRows[idx + 1];
 
-    // Find original sale details for order history view
-    const saleRow = sRows.slice(1).find((s) => s[COL_S.invoiceNumber] === id);
-    const saleDetails = saleRow ? {
-      invoiceNumber:  saleRow[COL_S.invoiceNumber],
-      customerName:   saleRow[COL_S.customerName],
-      totalAmount:    saleRow[COL_S.totalAmount],
-      itemNames:      saleRow[COL_S.itemNames],
-      sizes:          saleRow[COL_S.sizes],
-      saleStatus:     saleRow[COL_S.saleStatus],
-      deliveryStatus: saleRow[COL_S.deliveryStatus],
-    } : null;
+    let saleDetails = null;
+    if (sRows.length > 0) {
+      const sMap = buildHeaderMap(sRows[0]);
+      const saleRow = sRows.slice(1).find((s) => getCellByHeader(s, sMap, 'Invoice Number') === id);
+      if (saleRow) {
+        saleDetails = {
+          invoiceNumber:        getCellByHeader(saleRow, sMap, 'Invoice Number'),
+          customerName:         getCellByHeader(saleRow, sMap, 'Customer Name'),
+          totalAmount:          getCellByHeader(saleRow, sMap, 'Total Amount'),
+          itemNames:            getCellByHeader(r, rMap, 'Last Purchased Item(s)') || getCellByHeader(saleRow, sMap, 'Item(s) Name(s)'),
+          sizes:                getCellByHeader(r, rMap, 'Last Purchased Item(s) Size') || getCellByHeader(saleRow, sMap, 'Size(s) Chosen'),
+          saleStatus:           getCellByHeader(saleRow, sMap, 'Sale Status'),
+          deliveryStatus:       getCellByHeader(saleRow, sMap, 'Delivery Status'),
+          discount:             parseFloat(getCellByHeader(saleRow, sMap, 'Discount', '0')) || 0,
+          deliveryChargeToggle: getCellByHeader(saleRow, sMap, 'Delivery Charge Toggle') === 'true',
+          deliveryChargeAmount: parseFloat(getCellByHeader(saleRow, sMap, 'Delivery Charge Amount', '0')) || 0,
+        };
+      }
+    }
 
-    // Available inventory items for new item selection
-    const availableInventory = invRows.slice(1).map((inv) => ({
-      itemName: inv[COL_INV.itemName] ?? '',
-      size:     inv[COL_INV.size] ?? '',
-      qty:      parseInt(inv[COL_INV.qty] ?? '0', 10) || 0,
-    })).filter((inv) => inv.itemName && inv.size && inv.qty > 0);
+    const availableInventory: { itemName: string; size: string; qty: number }[] = [];
+    if (invRows.length > 0) {
+      const invMap = buildHeaderMap(invRows[0]);
+      invRows.slice(1).forEach((row) => {
+        const itemName = getCellByHeader(row, invMap, 'Item Name');
+        const size     = getCellByHeader(row, invMap, 'Size');
+        const qty      = parseInt(getCellByHeader(row, invMap, 'Total Quantity Available', '0'), 10) || 0;
+        if (itemName && qty > 0) availableInventory.push({ itemName, size, qty });
+      });
+    }
 
-    const warehouseStock = wRows.slice(1).map((w) => ({
-      handler:  (w[COL_W.handler] ?? '').trim(),
-      location: (w[COL_W.location] ?? '').trim(),
-      itemName: (w[COL_W.itemName] ?? '').trim(),
-      size:     (w[COL_W.size] ?? '').trim(),
-      qty:      parseInt(w[COL_W.qty] ?? '0', 10) || 0,
-    })).filter((w) => w.handler && w.itemName && w.size && w.qty > 0);
+    const warehouseStock: { handler: string; location: string; itemName: string; size: string; qty: number }[] = [];
+    if (wRows.length > 0) {
+      const wMap = buildHeaderMap(wRows[0]);
+      wRows.slice(1).forEach((row) => {
+        const handler  = getCellByHeader(row, wMap, 'Handler Name');
+        const location = getCellByHeader(row, wMap, 'Warehouse Location');
+        const itemName = getCellByHeader(row, wMap, 'Item Name');
+        const size     = getCellByHeader(row, wMap, 'Size');
+        const qty      = parseInt(getCellByHeader(row, wMap, 'Quantity', '0'), 10) || 0;
+        if (handler && itemName && qty > 0) warehouseStock.push({ handler, location, itemName, size, qty });
+      });
+    }
 
     const admins = adminRows.slice(1).map((a) => (a[1] ?? '').trim()).filter(Boolean);
 
     return Response.json({
       replacement: {
         rowIndex:                            idx + 2,
-        invoiceNumber:                       r[COL_R.invoiceNumber],
-        totalItems:                          r[COL_R.totalItems],
-        lastItems:                           r[COL_R.lastItems],
-        lastSizes:                           r[COL_R.lastSizes],
-        newItems:                            r[COL_R.newItems] ?? r[COL_R.newFinalItemsSelected] ?? '',
-        newSizes:                            r[COL_R.newSizes] ?? r[COL_R.newFinalItemsSizes] ?? '',
-        invoiceStatus:                       r[COL_R.invoiceStatus],
-        disposition:                         r[COL_R.disposition] ?? '',
-        restockDestination:                  r[COL_R.restockDestination] ?? '',
-        removedItemFromLastPurchase:         r[COL_R.removedItemFromLastPurchase] ?? '',
-        sizesOfRemovedItemFromLastPurchase:  r[COL_R.sizesOfRemovedItemFromLastPurchase] ?? '',
-        numberOfRemovedItemFromLastPurchase: r[COL_R.numberOfRemovedItemFromLastPurchase] ?? '',
-        newFinalItemsSelected:               r[COL_R.newFinalItemsSelected] ?? '',
-        newFinalItemsSizes:                  r[COL_R.newFinalItemsSizes] ?? '',
-        numberOfNewFinalItems:               r[COL_R.numberOfNewFinalItems] ?? '',
-        newFinalItemsPricesEach:             r[COL_R.newFinalItemsPricesEach] ?? '',
-        newFinalItemsTotalAmount:            r[COL_R.newFinalItemsTotalAmount] ?? '',
-        newStockSource:                      r[COL_R.newStockSource] ?? 'Main Inventory',
-        createdAt:                           r[COL_R.createdAt],
-        createdBy:                           r[COL_R.createdBy],
-        version:                             r[COL_R.version] || '1',
+        invoiceNumber:                       getCellByHeader(r, rMap, 'Invoice Number'),
+        totalItems:                          getCellByHeader(r, rMap, 'Total Number of Items Purchased'),
+        lastItems:                           getCellByHeader(r, rMap, 'Last Purchased Item(s)'),
+        lastSizes:                           getCellByHeader(r, rMap, 'Last Purchased Item(s) Size'),
+        newItems:                            getCellByHeader(r, rMap, 'New Item(s)'),
+        newSizes:                            getCellByHeader(r, rMap, 'New Item(s) Size') || getCellByHeader(r, rMap, 'New Final Items Sizes'),
+        invoiceStatus:                       getCellByHeader(r, rMap, 'Invoice Status'),
+        disposition:                         getCellByHeader(r, rMap, 'Disposition of Old Items'),
+        restockDestination:                  getCellByHeader(r, rMap, 'Restock Destination'),
+        removedItemFromLastPurchase:         getCellByHeader(r, rMap, 'Removed Item from Last Purchase'),
+        sizesOfRemovedItemFromLastPurchase:  getCellByHeader(r, rMap, 'Sizes of Removed Item from Last Purchase'),
+        numberOfRemovedItemFromLastPurchase: getCellByHeader(r, rMap, 'Number of Removed Item from Last Purchase'),
+        newFinalItemsSelected:               getCellByHeader(r, rMap, 'New Final Items Selected'),
+        newFinalItemsSizes:                  getCellByHeader(r, rMap, 'New Final Items Sizes'),
+        numberOfNewFinalItems:               getCellByHeader(r, rMap, 'Number of New Final Items'),
+        newFinalItemsPricesEach:             getCellByHeader(r, rMap, 'New Final Items Prices Each'),
+        newFinalItemsTotalAmount:            getCellByHeader(r, rMap, 'New Final Items Total Amount'),
+        newStockSource:                      getCellByHeader(r, rMap, 'New Stock Source', 'Main Inventory'),
+        newDeliveryCharge:                   getCellByHeader(r, rMap, 'New Delivery Charge'),
+        newDiscount:                         getCellByHeader(r, rMap, 'New Discount'),
+        createdAt:                           getCellByHeader(r, rMap, 'Created At'),
+        createdBy:                           getCellByHeader(r, rMap, 'Created By'),
+        version:                             getCellByHeader(r, rMap, 'Version', '1'),
       },
       saleDetails,
       availableInventory,
@@ -136,12 +124,16 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   try {
     const body = await request.json();
     const {
-      oldItemsToReplace, // array of { itemName, size, qty }
-      newItemsChosen,    // array of { itemName, size, qty }
-      disposition,       // 'Returned to Inventory' | 'Sent to Damaged Products'
-      restockDestination,// 'Inventory Only' | handler admin name
-      newStockSource,    // 'Main Inventory' | handler admin name
-      invoiceStatus,     // 'Replacement Approved' | ...
+      oldItemsToReplace,
+      newItemsChosen,
+      disposition,
+      restockDestination,
+      newStockSource,
+      invoiceStatus,
+      newDeliveryCharge,
+      newDiscount,
+      replaceDeliveryChargeToggle,
+      replaceDiscountToggle,
       version,
     } = body;
 
@@ -154,124 +146,160 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       readAllRows('items').catch(() => []),
     ]);
 
-    const catalogPricesMap: Record<string, number> = {};
-    if (itemRows && itemRows.length > 1) {
-      itemRows.slice(1).forEach((r) => {
-        const name = (r[1] ?? '').trim().toLowerCase();
-        const price = parseFloat(r[3] ?? '0') || 0;
-        if (name && price > 0) catalogPricesMap[name] = price;
-      });
-    }
+    if (rRows.length === 0) return Response.json({ error: 'Replacement record not found.' }, { status: 404 });
 
-    const idx = rRows.slice(1).findIndex((r) => r[COL_R.invoiceNumber] === id);
+    const rMap   = buildHeaderMap(rRows[0]);
+    const sMap   = buildHeaderMap(sRows[0]);
+    const invMap = buildHeaderMap(invRows[0]);
+    const wMap   = buildHeaderMap(wRows[0]);
+    const dmgMap = buildHeaderMap(dmgRows[0]);
+
+    const idx = rRows.slice(1).findIndex((r) => getCellByHeader(r, rMap, 'Invoice Number') === id);
     if (idx === -1) return Response.json({ error: 'Replacement record not found.' }, { status: 404 });
 
     const row = rRows[idx + 1];
     const actualRowIndex = idx + 2;
-    const currentVersion = parseInt(row[COL_R.version] || '1', 10);
+    const currentVersion = parseInt(getCellByHeader(row, rMap, 'Version', '1'), 10);
     const clientVersion  = parseInt(version || '1', 10);
 
     if (version && clientVersion !== currentVersion) {
-      return Response.json({ error: 'Conflict: record was updated by another admin. Reload and try again.', currentVersion }, { status: 409 });
+      return Response.json({
+        error: 'Conflict: replacement was updated by another admin. Reload and try again.',
+        currentVersion,
+      }, { status: 409 });
     }
 
+    const catalogPricesMap: Record<string, number> = {};
+    if (itemRows.length > 1) {
+      const itMap = buildHeaderMap(itemRows[0]);
+      itemRows.slice(1).forEach((it) => {
+        const name  = getCellByHeader(it, itMap, 'Item Name').toLowerCase().trim();
+        const price = parseFloat(getCellByHeader(it, itMap, 'Price of Item', '0')) || 0;
+        if (name && price > 0) catalogPricesMap[name] = price;
+      });
+    }
+
+    const targetStatus = invoiceStatus || getCellByHeader(row, rMap, 'Invoice Status', 'Replacement Approved');
+    const isStatusOnlyUpdate = !oldItemsToReplace && !newItemsChosen && !disposition && invoiceStatus;
     const now = new Date().toISOString();
-    const targetStatus = invoiceStatus || row[COL_R.invoiceStatus] || 'Replacement Approved';
-    const isStatusOnlyUpdate = !oldItemsToReplace && !newItemsChosen && targetStatus !== row[COL_R.invoiceStatus];
 
-    // Build summaries for row update & completion checks
-    const origTotalItems = row[COL_R.totalItems] ?? '1';
-    const origLastItems  = row[COL_R.lastItems]  ?? '';
-    const origLastSizes  = row[COL_R.lastSizes]  ?? '';
+    const origTotalItems = getCellByHeader(row, rMap, 'Total Number of Items Purchased');
+    const origLastItems  = getCellByHeader(row, rMap, 'Last Purchased Item(s)');
+    const origLastSizes  = getCellByHeader(row, rMap, 'Last Purchased Item(s) Size');
 
-    // Find original sale row details for computing retained items
-    const saleRow = sRows.slice(1).find((s) => s[COL_S.invoiceNumber] === id);
-    const origItemNamesArr  = saleRow ? (saleRow[COL_S.itemNames] ?? '').split(',').map((s) => s.trim()).filter(Boolean) : origLastItems.split(',').map((s) => s.trim()).filter(Boolean);
-    const origSizesArr      = saleRow ? (saleRow[COL_S.sizes] ?? '').split(',').map((s) => s.trim()).filter(Boolean) : origLastSizes.split(',').map((s) => s.trim()).filter(Boolean);
-    const origItemPricesArr = saleRow ? (saleRow[9] ?? '').split(',').map((s) => s.trim()).filter(Boolean) : [];
+    const saleRow = sRows.slice(1).find((s) => getCellByHeader(s, sMap, 'Invoice Number') === id);
 
-    // Build structured list of original items with catalog fallback
-    const originalBasket: { itemName: string; size: string; unitPrice: number }[] = origItemNamesArr.map((name, i) => {
+    // IMMUTABLE BASE PURCHASE ITEMS (Sourced directly from replacement sheet's Last Purchased Item(s))
+    const origItemNamesArr  = origLastItems.split(',').map((s) => s.trim()).filter(Boolean);
+    const origSizesArr      = origLastSizes.split(',').map((s) => s.trim()).filter(Boolean);
+    const origItemPricesArr = saleRow ? getCellByHeader(saleRow, sMap, 'Item Prices').split(',').map((s) => s.trim()).filter(Boolean) : [];
+
+    const origDiscount       = saleRow ? parseFloat(getCellByHeader(saleRow, sMap, 'Discount', '0')) || 0 : 0;
+    const origDeliveryToggle = saleRow ? (getCellByHeader(saleRow, sMap, 'Delivery Charge Toggle') === 'true') : false;
+    const origDeliveryAmt    = saleRow ? parseFloat(getCellByHeader(saleRow, sMap, 'Delivery Charge Amount', '0')) || 0 : 0;
+
+    let effectiveDiscount = origDiscount;
+    if (replaceDiscountToggle || (newDiscount !== undefined && newDiscount !== null && newDiscount !== '')) {
+      effectiveDiscount = parseFloat(String(newDiscount || 0)) || 0;
+    } else {
+      const savedNewDisc = getCellByHeader(row, rMap, 'New Discount');
+      if (savedNewDisc !== '') effectiveDiscount = parseFloat(savedNewDisc) || 0;
+    }
+
+    let effectiveDeliveryCharge = origDeliveryToggle ? origDeliveryAmt : 0;
+    if (replaceDeliveryChargeToggle || (newDeliveryCharge !== undefined && newDeliveryCharge !== null && newDeliveryCharge !== '')) {
+      effectiveDeliveryCharge = parseFloat(String(newDeliveryCharge || 0)) || 0;
+    } else {
+      const savedNewDel = getCellByHeader(row, rMap, 'New Delivery Charge');
+      if (savedNewDel !== '') effectiveDeliveryCharge = parseFloat(savedNewDel) || 0;
+    }
+
+    const originalBasket = origItemNamesArr.map((name, i) => {
       const origPrice = parseFloat(origItemPricesArr[i]) || 0;
       const unitPrice = origPrice > 0 ? origPrice : (catalogPricesMap[name.toLowerCase()] || 0);
-      return {
-        itemName: name,
-        size: origSizesArr[i] || 'M',
-        unitPrice,
-      };
+      return { itemName: name, size: origSizesArr[i] || 'M', unitPrice };
     });
 
-    // 1. Exchanged / Returned items summary
-    const removedItemStr  = oldItemsToReplace ? oldItemsToReplace.map((i: any) => i.itemName).join(', ') : row[COL_R.removedItemFromLastPurchase] ?? '';
-    const removedSizesStr = oldItemsToReplace ? oldItemsToReplace.map((i: any) => i.size).join(', ') : row[COL_R.sizesOfRemovedItemFromLastPurchase] ?? '';
-    const removedQtyStr   = oldItemsToReplace ? oldItemsToReplace.map((i: any) => String(i.qty)).join(', ') : row[COL_R.numberOfRemovedItemFromLastPurchase] ?? '';
+    const removedItemStr  = oldItemsToReplace ? oldItemsToReplace.map((i: any) => i.itemName).join(', ') : getCellByHeader(row, rMap, 'Removed Item from Last Purchase');
+    const removedSizesStr = oldItemsToReplace ? oldItemsToReplace.map((i: any) => i.size).join(', ') : getCellByHeader(row, rMap, 'Sizes of Removed Item from Last Purchase');
+    const removedQtyStr   = oldItemsToReplace ? oldItemsToReplace.map((i: any) => String(i.qty)).join(', ') : getCellByHeader(row, rMap, 'Number of Removed Item from Last Purchase');
 
-    // Newly issued items summary (col 5 & col 6)
-    const newIssuedItemsStr = newItemsChosen ? newItemsChosen.map((i: any) => i.itemName).join(', ') : row[COL_R.newItems] ?? '';
-    const newIssuedSizesStr = newItemsChosen ? newItemsChosen.map((i: any) => i.size).join(', ') : row[COL_R.newSizes] ?? '';
+    const expandedNewItemsArr: string[] = [];
+    const expandedNewSizesArr: string[] = [];
+    if (newItemsChosen && Array.isArray(newItemsChosen)) {
+      newItemsChosen.forEach((item: any) => {
+        const q = parseInt(item.qty, 10) || 1;
+        for (let k = 0; k < q; k++) {
+          expandedNewItemsArr.push(item.itemName);
+          expandedNewSizesArr.push(item.size);
+        }
+      });
+    }
 
-    // 2. Compute Retained Original Items (Original Basket MINUS Returned Items)
+    const newIssuedItemsStr = expandedNewItemsArr.length > 0
+      ? expandedNewItemsArr.join(', ')
+      : getCellByHeader(row, rMap, 'New Item(s)');
+    const newIssuedSizesStr = expandedNewSizesArr.length > 0
+      ? expandedNewSizesArr.join(', ')
+      : getCellByHeader(row, rMap, 'New Item(s) Size');
+
     const retainedBasket = [...originalBasket];
     if (oldItemsToReplace && Array.isArray(oldItemsToReplace)) {
       for (const oldItem of oldItemsToReplace) {
         let toRemove = oldItem.qty || 1;
-        for (let idx = 0; idx < retainedBasket.length && toRemove > 0; idx++) {
+        for (let rIdx = 0; rIdx < retainedBasket.length && toRemove > 0; rIdx++) {
           if (
-            retainedBasket[idx].itemName.toLowerCase() === oldItem.itemName.toLowerCase() &&
-            retainedBasket[idx].size === oldItem.size
+            retainedBasket[rIdx].itemName.toLowerCase() === oldItem.itemName.toLowerCase() &&
+            retainedBasket[rIdx].size === oldItem.size
           ) {
-            retainedBasket.splice(idx, 1);
-            idx--;
+            retainedBasket.splice(rIdx, 1);
+            rIdx--;
             toRemove--;
           }
         }
       }
     }
 
-    // 3. Combine Retained Items + Issued Replacement Items = Final Basket
     const finalBasket: { itemName: string; size: string; qty: number; unitPrice: number }[] = [];
-    
-    // Add retained items to final basket
     retainedBasket.forEach((item) => {
       finalBasket.push({ itemName: item.itemName, size: item.size, qty: 1, unitPrice: item.unitPrice });
     });
 
-    // Add newly issued replacement items to final basket
     if (newItemsChosen && Array.isArray(newItemsChosen)) {
       newItemsChosen.forEach((item: any) => {
         const q = parseInt(item.qty, 10) || 1;
         const p = parseFloat(item.unitPrice) || 0;
         const priceToUse = p > 0 ? p : (catalogPricesMap[item.itemName.toLowerCase()] || 0);
         for (let k = 0; k < q; k++) {
-          finalBasket.push({
-            itemName: item.itemName,
-            size: item.size,
-            qty: 1,
-            unitPrice: priceToUse,
-          });
+          finalBasket.push({ itemName: item.itemName, size: item.size, qty: 1, unitPrice: priceToUse });
         }
       });
     }
 
-    // Compute final basket string representations
-    const newFinalItemsStr  = finalBasket.length > 0 ? finalBasket.map((i) => i.itemName).join(', ') : (row[COL_R.newFinalItemsSelected] || newIssuedItemsStr);
-    const newFinalSizesStr  = finalBasket.length > 0 ? finalBasket.map((i) => i.size).join(', ') : (row[COL_R.newFinalItemsSizes] || newIssuedSizesStr);
-    const newFinalQtyStr    = finalBasket.length > 0 ? finalBasket.map((i) => String(i.qty)).join(', ') : (row[COL_R.numberOfNewFinalItems] || '1');
-    const newFinalPricesStr = finalBasket.length > 0 ? finalBasket.map((i) => String(i.unitPrice)).join(', ') : (row[COL_R.newFinalItemsPricesEach] || '0');
-    const newFinalTotalAmt  = finalBasket.length > 0 ? String(finalBasket.reduce((sum, i) => sum + i.unitPrice, 0)) : (row[COL_R.newFinalItemsTotalAmount] || '0');
+    const newFinalItemsStr  = finalBasket.length > 0 ? finalBasket.map((i) => i.itemName).join(', ') : (getCellByHeader(row, rMap, 'New Final Items Selected') || newIssuedItemsStr);
+    const newFinalSizesStr  = finalBasket.length > 0 ? finalBasket.map((i) => i.size).join(', ') : (getCellByHeader(row, rMap, 'New Final Items Sizes') || newIssuedSizesStr);
+    const newFinalQtyStr    = finalBasket.length > 0 ? finalBasket.map((i) => String(i.qty)).join(', ') : (getCellByHeader(row, rMap, 'Number of New Final Items') || '1');
+    const newFinalPricesStr = finalBasket.length > 0 ? finalBasket.map((i) => String(i.unitPrice)).join(', ') : (getCellByHeader(row, rMap, 'New Final Items Prices Each') || '0');
 
-    const sourceLocation = (newStockSource || row[COL_R.newStockSource] || 'Main Inventory').trim();
+    // Consolidated pricing calculation via calculateSaleTotalAmount
+    const basketSubtotal = finalBasket.reduce((sum, i) => sum + i.unitPrice, 0);
+    const grandTotalCalc = calculateSaleTotalAmount({
+      items: basketSubtotal,
+      discount: effectiveDiscount,
+      deliveryCharge: effectiveDeliveryCharge,
+    });
+    const newFinalTotalAmt = String(grandTotalCalc.grandTotal);
 
+    const sourceLocation = (newStockSource || getCellByHeader(row, rMap, 'New Stock Source', 'Main Inventory')).trim();
     const isCompletionRequest = body.action === 'complete' || targetStatus === 'Satisfied / Completed Order';
 
-    // If completing the replacement, perform mandatory field checks & execute inventory stock transfers
     if (isCompletionRequest) {
       const checkRemovedItems = removedItemStr.trim();
       const checkRemovedSizes = removedSizesStr.trim();
       const checkNewItems     = newIssuedItemsStr.trim();
       const checkNewSizes     = newIssuedSizesStr.trim();
-      const checkDisp         = (disposition || row[COL_R.disposition] || '').trim();
-      const checkRestock      = (restockDestination || row[COL_R.restockDestination] || '').trim();
+      const checkDisp         = (disposition || getCellByHeader(row, rMap, 'Disposition of Old Items')).trim();
+      const checkRestock      = (restockDestination || getCellByHeader(row, rMap, 'Restock Destination')).trim();
 
       if (!checkRemovedItems || !checkRemovedSizes || !checkNewItems || !checkNewSizes || !checkDisp || (checkDisp === 'Returned to Inventory' && !checkRestock)) {
         return Response.json({
@@ -279,61 +307,46 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
         }, { status: 400 });
       }
 
-      // Execute Stock Transfer & Deductions ONLY on Replacement Completion
       if (oldItemsToReplace && newItemsChosen && disposition) {
         const isWarehouseSource = sourceLocation !== 'Main Inventory' && sourceLocation !== 'Inventory Only';
 
-        // 0. Stock availability check
-        for (const newItem of newItemsChosen) {
-          if (isWarehouseSource) {
-            const matches = wRows.slice(1).filter(
-              (r) => (r[COL_W.handler] ?? '').trim().toLowerCase() === sourceLocation.toLowerCase() &&
-                     (r[COL_W.itemName] ?? '').trim().toLowerCase() === newItem.itemName.toLowerCase() &&
-                     (r[COL_W.size] ?? '').trim() === newItem.size
-            );
-            const availQty = matches.reduce((sum, r) => sum + (parseInt(r[COL_W.qty] ?? '0', 10) || 0), 0);
-            if (availQty < newItem.qty) {
-              return Response.json({
-                error: `Handler '${sourceLocation}' does not have sufficient stock for '${newItem.itemName} (Size ${newItem.size})' in their warehouse. Available: ${availQty} piece(s), Requested: ${newItem.qty}.`
-              }, { status: 400 });
-            }
-          } else {
-            const invMatch = invRows.slice(1).find(
-              (r) => (r[COL_INV.itemName] ?? '').trim().toLowerCase() === newItem.itemName.toLowerCase() &&
-                     (r[COL_INV.size] ?? '').trim() === newItem.size
-            );
-            const availQty = invMatch ? (parseInt(invMatch[COL_INV.qty] ?? '0', 10) || 0) : 0;
-            if (availQty < newItem.qty) {
-              return Response.json({
-                error: `Main Inventory does not have sufficient stock for '${newItem.itemName} (Size ${newItem.size})'. Available: ${availQty} piece(s), Requested: ${newItem.qty}.`
-              }, { status: 400 });
-            }
-          }
-        }
-
-        // 1. Process Old Items Restock / Disposal
+        // Restock old items
         for (const oldItem of oldItemsToReplace) {
           if (disposition === 'Returned to Inventory') {
             const invIdx = invRows.slice(1).findIndex(
-              (r) => r[COL_INV.itemName]?.toLowerCase() === oldItem.itemName.toLowerCase() && r[COL_INV.size] === oldItem.size
+              (r) => getCellByHeader(r, invMap, 'Item Name').toLowerCase() === oldItem.itemName.toLowerCase() && getCellByHeader(r, invMap, 'Size') === oldItem.size
             );
 
             let newInvQty = oldItem.qty;
             if (invIdx >= 0) {
               const invRow = invRows[invIdx + 1];
-              const currentQty = parseInt(invRow[COL_INV.qty] ?? '0', 10) || 0;
+              const currentQty = parseInt(getCellByHeader(invRow, invMap, 'Total Quantity Available', '0'), 10) || 0;
               newInvQty = currentQty + oldItem.qty;
 
-              await updateRow('inventory', invIdx + 2, [
-                invRow[COL_INV.sno], oldItem.itemName, oldItem.size, String(newInvQty),
-                invRow[COL_INV.addedBy] ?? admin.name, now, admin.name, invRow[COL_INV.createdAt] ?? now,
-              ]);
+              const invObj = {
+                'S.No':                     getCellByHeader(invRow, invMap, 'S.No'),
+                'Item Name':                 oldItem.itemName,
+                'Size':                      oldItem.size,
+                'Total Quantity Available': String(newInvQty),
+                'Added By (Admin)':          getCellByHeader(invRow, invMap, 'Added By (Admin)') || admin.name,
+                'Updated At':                now,
+                'Updated By (Admin)':        admin.name,
+                'Created At':                getCellByHeader(invRow, invMap, 'Created At') || now,
+              };
+              await updateRow('inventory', invIdx + 2, formatRowFromHeaderMap(invObj, invRows[0]));
             } else {
               const nextInvSno = String(invRows.length);
-              await appendRows('inventory', [[
-                nextInvSno, oldItem.itemName, oldItem.size, String(oldItem.qty),
-                admin.name, now, admin.name, now,
-              ]]);
+              const invObj = {
+                'S.No':                     nextInvSno,
+                'Item Name':                 oldItem.itemName,
+                'Size':                      oldItem.size,
+                'Total Quantity Available': String(oldItem.qty),
+                'Added By (Admin)':          admin.name,
+                'Updated At':                now,
+                'Updated By (Admin)':        admin.name,
+                'Created At':                now,
+              };
+              await appendRows('inventory', [formatRowFromHeaderMap(invObj, invRows[0])]);
             }
 
             await recordInventoryHistory({
@@ -345,33 +358,50 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
               relatedInvoiceNumber: id,
               resultingBalance: newInvQty,
               createdBy: admin.name,
-              notes: `Replacement old item restocked for invoice ${id}`,
+              notes: `Returned item restocked via replacement for invoice ${id}`,
             });
 
             if (restockDestination && restockDestination !== 'Inventory Only') {
               const wIdx = wRows.slice(1).findIndex(
-                (r) => (r[COL_W.handler] ?? '').trim().toLowerCase() === restockDestination.trim().toLowerCase() &&
-                       (r[COL_W.itemName] ?? '').trim().toLowerCase() === oldItem.itemName.toLowerCase() &&
-                       (r[COL_W.size] ?? '').trim() === oldItem.size
+                (r) => getCellByHeader(r, wMap, 'Handler Name').trim().toLowerCase() === restockDestination.trim().toLowerCase() &&
+                       getCellByHeader(r, wMap, 'Item Name').trim().toLowerCase() === oldItem.itemName.toLowerCase() &&
+                       getCellByHeader(r, wMap, 'Size').trim() === oldItem.size
               );
 
               let newWQty = oldItem.qty;
               if (wIdx >= 0) {
                 const wRow = wRows[wIdx + 1];
-                const curWQty = parseInt(wRow[COL_W.qty] ?? '0', 10) || 0;
+                const curWQty = parseInt(getCellByHeader(wRow, wMap, 'Quantity', '0'), 10) || 0;
                 newWQty = curWQty + oldItem.qty;
 
-                await updateRow('warehouse', wIdx + 2, [
-                  wRow[COL_W.sno], wRow[COL_W.location], wRow[COL_W.handler], wRow[COL_W.itemName],
-                  wRow[COL_W.size], String(newWQty), wRow[COL_W.createdBy], wRow[COL_W.createdAt],
-                  admin.name, now,
-                ]);
+                const wObj = {
+                  'S.No':               getCellByHeader(wRow, wMap, 'S.No'),
+                  'Warehouse Location': getCellByHeader(wRow, wMap, 'Warehouse Location'),
+                  'Handler Name':       getCellByHeader(wRow, wMap, 'Handler Name'),
+                  'Item Name':          getCellByHeader(wRow, wMap, 'Item Name'),
+                  'Size':               getCellByHeader(wRow, wMap, 'Size'),
+                  'Quantity':           String(newWQty),
+                  'Created By':         getCellByHeader(wRow, wMap, 'Created By'),
+                  'Created At':         getCellByHeader(wRow, wMap, 'Created At'),
+                  'Updated By':         admin.name,
+                  'Updated At':         now,
+                };
+                await updateRow('warehouse', wIdx + 2, formatRowFromHeaderMap(wObj, wRows[0]));
               } else {
                 const nextWSno = String(wRows.length);
-                await appendRows('warehouse', [[
-                  nextWSno, 'Main Restock Warehouse', restockDestination.trim(), oldItem.itemName,
-                  oldItem.size, String(oldItem.qty), admin.name, now, admin.name, now,
-                ]]);
+                const wObj = {
+                  'S.No':               nextWSno,
+                  'Warehouse Location': 'Main Restock Warehouse',
+                  'Handler Name':       restockDestination.trim(),
+                  'Item Name':          oldItem.itemName,
+                  'Size':               oldItem.size,
+                  'Quantity':           String(oldItem.qty),
+                  'Created By':         admin.name,
+                  'Created At':         now,
+                  'Updated By':         admin.name,
+                  'Updated At':         now,
+                };
+                await appendRows('warehouse', [formatRowFromHeaderMap(wObj, wRows[0])]);
               }
 
               await recordInventoryHistory({
@@ -388,13 +418,23 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
               });
             }
           } else if (disposition === 'Sent to Damaged Products') {
-            const custName = saleRow ? saleRow[COL_S.customerName] : '';
+            const custName = saleRow ? getCellByHeader(saleRow, sMap, 'Customer Name') : '';
             const dmgSno = String(dmgRows.length + 1);
 
-            await appendRows('damaged_products', [[
-              dmgSno, id, oldItem.itemName, oldItem.size, String(oldItem.qty),
-              custName, 'Logged via Replacement disposition', now, admin.name, now, admin.name,
-            ]]);
+            const dmgObj = {
+              'S.No':           dmgSno,
+              'Invoice Number': id,
+              'Item Name':      oldItem.itemName,
+              'Size':           oldItem.size,
+              'Quantity':       String(oldItem.qty),
+              'Customer Name':  custName,
+              'Reason/Notes':   'Logged via Replacement disposition',
+              'Created At':     now,
+              'Created By':     admin.name,
+              'Updated At':     now,
+              'Updated By':     admin.name,
+            };
+            await appendRows('damaged_products', [formatRowFromHeaderMap(dmgObj, dmgRows[0])]);
 
             await recordInventoryHistory({
               itemName: oldItem.itemName,
@@ -410,25 +450,33 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
           }
         }
 
-        // 2. Process New Items Deduction
+        // Deduct new items
         for (const newItem of newItemsChosen) {
           if (isWarehouseSource) {
             const wIdx = wRows.slice(1).findIndex(
-              (r) => (r[COL_W.handler] ?? '').trim().toLowerCase() === sourceLocation.toLowerCase() &&
-                     (r[COL_W.itemName] ?? '').trim().toLowerCase() === newItem.itemName.toLowerCase() &&
-                     (r[COL_W.size] ?? '').trim() === newItem.size
+              (r) => getCellByHeader(r, wMap, 'Handler Name').trim().toLowerCase() === sourceLocation.toLowerCase() &&
+                     getCellByHeader(r, wMap, 'Item Name').trim().toLowerCase() === newItem.itemName.toLowerCase() &&
+                     getCellByHeader(r, wMap, 'Size').trim() === newItem.size
             );
 
             if (wIdx >= 0) {
               const wRow = wRows[wIdx + 1];
-              const curWQty = parseInt(wRow[COL_W.qty] ?? '0', 10) || 0;
+              const curWQty = parseInt(getCellByHeader(wRow, wMap, 'Quantity', '0'), 10) || 0;
               const newWQty = Math.max(0, curWQty - newItem.qty);
 
-              await updateRow('warehouse', wIdx + 2, [
-                wRow[COL_W.sno], wRow[COL_W.location], wRow[COL_W.handler], wRow[COL_W.itemName],
-                wRow[COL_W.size], String(newWQty), wRow[COL_W.createdBy], wRow[COL_W.createdAt],
-                admin.name, now,
-              ]);
+              const wObj = {
+                'S.No':               getCellByHeader(wRow, wMap, 'S.No'),
+                'Warehouse Location': getCellByHeader(wRow, wMap, 'Warehouse Location'),
+                'Handler Name':       getCellByHeader(wRow, wMap, 'Handler Name'),
+                'Item Name':          getCellByHeader(wRow, wMap, 'Item Name'),
+                'Size':               getCellByHeader(wRow, wMap, 'Size'),
+                'Quantity':           String(newWQty),
+                'Created By':         getCellByHeader(wRow, wMap, 'Created By'),
+                'Created At':         getCellByHeader(wRow, wMap, 'Created At'),
+                'Updated By':         admin.name,
+                'Updated At':         now,
+              };
+              await updateRow('warehouse', wIdx + 2, formatRowFromHeaderMap(wObj, wRows[0]));
 
               await recordInventoryHistory({
                 itemName: newItem.itemName,
@@ -446,18 +494,25 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
           }
 
           const invIdx = invRows.slice(1).findIndex(
-            (r) => r[COL_INV.itemName]?.toLowerCase() === newItem.itemName.toLowerCase() && r[COL_INV.size] === newItem.size
+            (r) => getCellByHeader(r, invMap, 'Item Name').toLowerCase() === newItem.itemName.toLowerCase() && getCellByHeader(r, invMap, 'Size') === newItem.size
           );
 
           if (invIdx >= 0) {
             const invRow = invRows[invIdx + 1];
-            const currentQty = parseInt(invRow[COL_INV.qty] ?? '0', 10) || 0;
+            const currentQty = parseInt(getCellByHeader(invRow, invMap, 'Total Quantity Available', '0'), 10) || 0;
             const newQty = Math.max(0, currentQty - newItem.qty);
 
-            await updateRow('inventory', invIdx + 2, [
-              invRow[COL_INV.sno], newItem.itemName, newItem.size, String(newQty),
-              invRow[COL_INV.addedBy] ?? admin.name, now, admin.name, invRow[COL_INV.createdAt] ?? now,
-            ]);
+            const invObj = {
+              'S.No':                     getCellByHeader(invRow, invMap, 'S.No'),
+              'Item Name':                 newItem.itemName,
+              'Size':                      newItem.size,
+              'Total Quantity Available': String(newQty),
+              'Added By (Admin)':          getCellByHeader(invRow, invMap, 'Added By (Admin)') || admin.name,
+              'Updated At':                now,
+              'Updated By (Admin)':        admin.name,
+              'Created At':                getCellByHeader(invRow, invMap, 'Created At') || now,
+            };
+            await updateRow('inventory', invIdx + 2, formatRowFromHeaderMap(invObj, invRows[0]));
 
             if (!isWarehouseSource) {
               await recordInventoryHistory({
@@ -476,55 +531,64 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
         }
       }
 
-      // 3. Complete replacement: unlock sales record with final basket & remove entry from replacement sheet
-      const sIdx = sRows.slice(1).findIndex((s) => s[COL_S.invoiceNumber] === id);
+      // Update Sales Record ONLY when completing replacement
+      const sIdx = sRows.slice(1).findIndex((s) => getCellByHeader(s, sMap, 'Invoice Number') === id);
       if (sIdx >= 0) {
-        const sRow = [...sRows[sIdx + 1]];
-        sRow[COL_S.itemNames] = newFinalItemsStr;
-        sRow[COL_S.sizes] = newFinalSizesStr;
-        sRow[9] = newFinalPricesStr; // itemPrices (Index 9)
-        sRow[COL_S.totalAmount] = newFinalTotalAmt;
-        sRow[COL_S.totalItems] = String(finalBasket.length);
-        sRow[COL_S.fulfilmentStatus] = 'Normal';
-        sRow[COL_S.deliveryStatus] = 'Order Delivered Successfully';
-        sRow[COL_S.saleStatus] = 'Replacement Completed & Purchase Satisfied';
-        sRow[COL_S.saleClosedBy] = admin.name;
+        const sRow = sRows[sIdx + 1];
+        const sObj: Record<string, string> = {};
+        sRows[0].forEach((col, cIdx) => { sObj[col.trim()] = sRow[cIdx] ?? ''; });
 
-        await updateRow('sales', sIdx + 2, sRow);
+        sObj['Item(s) Name(s)']                 = newFinalItemsStr;
+        sObj['Size(s) Chosen']                  = newFinalSizesStr;
+        sObj['Item Prices']                     = newFinalPricesStr;
+        sObj['Total Amount']                    = newFinalTotalAmt;
+        sObj['Discount']                        = String(effectiveDiscount);
+        sObj['Delivery Charge Amount']          = String(effectiveDeliveryCharge);
+        sObj['Delivery Charge Toggle']          = effectiveDeliveryCharge > 0 ? 'true' : 'false';
+        sObj['Total Number of Items Purchased'] = String(finalBasket.length);
+        sObj['Fulfilment Request Status']     = 'Normal';
+        sObj['Delivery Status']              = 'Order Delivered Successfully';
+        sObj['Sale Status']                  = 'Replacement Completed & Purchase Satisfied';
+        sObj['Sale Closed By']               = admin.name;
+
+        await updateRow('sales', sIdx + 2, formatRowFromHeaderMap(sObj, sRows[0]));
       }
 
       await deleteRow('replacement', actualRowIndex);
     } else {
-      // DRAFT SAVE PROGRESS: Only update the replacement sheet row!
-      await updateRow('replacement', actualRowIndex, [
-        row[COL_R.sno],
-        id,
-        origTotalItems,
-        origLastItems,
-        origLastSizes,
-        newIssuedItemsStr,
-        newIssuedSizesStr,
-        targetStatus,
-        disposition || row[COL_R.disposition] || '',
-        restockDestination || row[COL_R.restockDestination] || '',
-        removedItemStr,
-        removedSizesStr,
-        removedQtyStr,
-        newFinalItemsStr,
-        newFinalSizesStr,
-        newFinalQtyStr,
-        newFinalPricesStr,
-        newFinalTotalAmt,
-        sourceLocation,
-        row[COL_R.createdAt],
-        row[COL_R.createdBy],
-        now,
-        admin.name,
-        String(currentVersion + 1),
-      ]);
+      // DRAFT SAVE PROGRESS: Update replacement row only (never mutates original sales row)
+      const rObj: Record<string, string> = {
+        'S.No':                                   getCellByHeader(row, rMap, 'S.No'),
+        'Invoice Number':                         id,
+        'Total Number of Items Purchased':        origTotalItems,
+        'Last Purchased Item(s)':                 origLastItems,
+        'Last Purchased Item(s) Size':            origLastSizes,
+        'New Item(s)':                            newIssuedItemsStr,
+        'New Item(s) Size':                       newIssuedSizesStr,
+        'Invoice Status':                         targetStatus,
+        'Disposition of Old Items':               disposition || getCellByHeader(row, rMap, 'Disposition of Old Items'),
+        'Restock Destination':                    restockDestination || getCellByHeader(row, rMap, 'Restock Destination'),
+        'Removed Item from Last Purchase':        removedItemStr,
+        'Sizes of Removed Item from Last Purchase': removedSizesStr,
+        'Number of Removed Item from Last Purchase': removedQtyStr,
+        'New Final Items Selected':               newFinalItemsStr,
+        'New Final Items Sizes':                  newFinalSizesStr,
+        'Number of New Final Items':               newFinalQtyStr,
+        'New Final Items Prices Each':             newFinalPricesStr,
+        'New Final Items Total Amount':            newFinalTotalAmt,
+        'New Stock Source':                      sourceLocation,
+        'Created At':                             getCellByHeader(row, rMap, 'Created At'),
+        'Created By':                             getCellByHeader(row, rMap, 'Created By'),
+        'Updated At':                             now,
+        'Updated By':                             admin.name,
+        'Version':                                String(currentVersion + 1),
+        'New Delivery Charge':                    String(effectiveDeliveryCharge),
+        'New Discount':                           String(effectiveDiscount),
+      };
+
+      await updateRow('replacement', actualRowIndex, formatRowFromHeaderMap(rObj, rRows[0]));
     }
 
-    // Activity Log sentence
     let activityText = '';
     if (isCompletionRequest) {
       activityText = `${admin.name} marked replacement ${id} as completed. Sale unlocked and replacement entry finalized.`;
@@ -561,30 +625,45 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   let admin;
   try { admin = await requireAuth(); } catch (e) { if (e instanceof Response) return e; return Response.json({ error: 'Auth required.' }, { status: 401 }); }
+
   try {
-    const [rows, sRows] = await Promise.all([
+    const [rRows, sRows] = await Promise.all([
       readAllRows('replacement'),
       readAllRows('sales'),
     ]);
-    const idx = rows.slice(1).findIndex((r) => r[COL_R.invoiceNumber] === id);
+
+    if (rRows.length === 0) return Response.json({ error: 'Replacement record not found.' }, { status: 404 });
+
+    const rMap = buildHeaderMap(rRows[0]);
+    const idx  = rRows.slice(1).findIndex((r) => getCellByHeader(r, rMap, 'Invoice Number') === id);
     if (idx === -1) return Response.json({ error: 'Replacement record not found.' }, { status: 404 });
 
-    // 1. Delete replacement record
     await deleteRow('replacement', idx + 2);
 
-    // 2. Unlock corresponding Sale record in sales sheet
-    const sIdx = sRows.slice(1).findIndex((s) => s[COL_S.invoiceNumber] === id);
-    if (sIdx >= 0) {
-      const sRow = [...sRows[sIdx + 1]];
-      sRow[COL_S.saleStatus]       = 'Purchase Satisfied & Order Completed';
-      sRow[COL_S.deliveryStatus]   = 'Order Delivered Successfully';
-      sRow[COL_S.fulfilmentStatus] = 'Normal';
-      sRow[COL_S.saleClosedBy]     = admin.name;
+    if (sRows.length > 0) {
+      const sMap = buildHeaderMap(sRows[0]);
+      const sIdx = sRows.slice(1).findIndex((s) => getCellByHeader(s, sMap, 'Invoice Number') === id);
+      if (sIdx >= 0) {
+        const sRow = sRows[sIdx + 1];
+        const sObj: Record<string, string> = {};
+        sRows[0].forEach((col, cIdx) => { sObj[col.trim()] = sRow[cIdx] ?? ''; });
 
-      await updateRow('sales', sIdx + 2, sRow);
+        sObj['Fulfilment Request Status'] = 'Normal';
+        sObj['Sale Status']              = 'Purchase Satisfied & Order Completed';
+        sObj['Sale Closed By']           = admin.name;
+
+        await updateRow('sales', sIdx + 2, formatRowFromHeaderMap(sObj, sRows[0]));
+      }
     }
 
-    await logActivity({ adminName: admin.name, action: 'deleted', module: 'Replacement Management', moduleKey: 'replacement', recordId: id });
-    return Response.json({ success: true, message: `Replacement for ${id} deleted and sale unlocked.` });
+    await logActivity({
+      adminName: admin.name,
+      action: 'deleted',
+      module: 'Replacement Management',
+      moduleKey: 'replacement',
+      recordId: id,
+    });
+
+    return Response.json({ success: true, message: `Replacement record for ${id} deleted.` });
   } catch (err) { return Response.json({ error: 'Failed to delete replacement.', detail: (err as Error).message }, { status: 500 }); }
 }

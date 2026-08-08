@@ -4,43 +4,17 @@
  * GET    /api/sales/[id] — get single sale by invoice number or rowIndex
  * PUT    /api/sales/[id] — update sale (with Replace/Refund request locking and saleClosedBy tracking)
  * DELETE /api/sales/[id] — delete sale
+ *
+ * Updated with header mapping safety, "Return/Refund Requested" label update, and consolidated totalAmount calculation.
  */
 
 import { requireAuth } from '@/lib/auth';
 import { readAllRows, updateRow, deleteRow, appendRows } from '@/lib/google/moduleSheet';
+import { buildHeaderMap, getCellByHeader, formatRowFromHeaderMap } from '@/lib/google/headerUtils';
+import { calculateSaleTotalAmount } from '@/lib/salesPricing';
 import { logActivity } from '@/lib/activityLogger';
 
 export const dynamic = 'force-dynamic';
-
-const COL = {
-  sno:                  0,
-  invoiceNumber:        1,
-  saleStatus:           2,
-  customerName:         3,
-  customerPhone:        4,
-  customerAddress:      5,
-  totalItems:           6,
-  itemNames:            7,
-  sizes:                8,
-  itemPrices:           9,
-  totalAmount:          10,
-  paymentStatus:        11,
-  modeOfPayment:        12,
-  transactionId:        13,
-  createdAt:            14,
-  createdBy:            15,
-  updatedAt:            16,
-  updatedBy:            17,
-  version:              18,
-  deliveryStatus:       19,
-  deliveryChargeToggle: 20,
-  deliveryChargeAmount: 21,
-  fulfilmentStatus:     22,
-  fulfilmentSource:     23,
-  saleClosedBy:         24,
-  discount:             25,
-  customerEmail:        26,
-};
 
 export async function GET(
   _req: Request,
@@ -56,9 +30,11 @@ export async function GET(
   try {
     const { id } = await params;
     const rows = await readAllRows('sales');
+    if (rows.length === 0) return Response.json({ error: `Sale '${id}' not found.` }, { status: 404 });
 
+    const headerMap = buildHeaderMap(rows[0]);
     const rowIndex = rows.slice(1).findIndex(
-      (row) => row[COL.invoiceNumber] === id || String(rows.indexOf(row) + 2) === id
+      (row) => getCellByHeader(row, headerMap, 'Invoice Number') === id || String(rows.indexOf(row) + 2) === id
     );
 
     if (rowIndex === -1) {
@@ -71,32 +47,32 @@ export async function GET(
     const row = rows[rowIndex + 1];
     const sale = {
       rowIndex:             rowIndex + 2,
-      invoiceNumber:        row[COL.invoiceNumber]        ?? '',
-      saleStatus:           row[COL.saleStatus]           ?? '',
-      customerName:         row[COL.customerName]         ?? '',
-      customerPhone:        row[COL.customerPhone]        ?? '',
-      customerAddress:      row[COL.customerAddress]      ?? '',
-      totalItems:           row[COL.totalItems]           ?? '',
-      itemNames:            row[COL.itemNames]            ?? '',
-      sizes:                row[COL.sizes]                ?? '',
-      totalAmount:          row[COL.totalAmount]          ?? '',
-      paymentStatus:        row[COL.paymentStatus]        ?? '',
-      modeOfPayment:        row[COL.modeOfPayment]        ?? '',
-      transactionId:        row[COL.transactionId]        ?? '',
-      createdAt:            row[COL.createdAt]            ?? '',
-      createdBy:            row[COL.createdBy]            ?? '',
-      updatedAt:            row[COL.updatedAt]            ?? '',
-      updatedBy:            row[COL.updatedBy]            ?? '',
-      version:              row[COL.version]              ?? '1',
-      deliveryStatus:       row[COL.deliveryStatus]       ?? 'Packed & Ready for Shipment',
-      deliveryChargeToggle: row[COL.deliveryChargeToggle] === 'true',
-      deliveryChargeAmount: parseFloat(row[COL.deliveryChargeAmount] ?? '0') || 0,
-      fulfilmentStatus:     row[COL.fulfilmentStatus]     ?? 'Normal',
-      fulfilmentSource:     row[COL.fulfilmentSource]     ?? 'Take from Inventory',
-      saleClosedBy:         row[COL.saleClosedBy]         ?? '',
-      discount:             parseFloat(row[COL.discount]  ?? '0') || 0,
-      customerEmail:        row[COL.customerEmail]        ?? '',
-      itemPrices:           row[COL.itemPrices]           ?? '',
+      invoiceNumber:        getCellByHeader(row, headerMap, 'Invoice Number'),
+      saleStatus:           getCellByHeader(row, headerMap, 'Sale Status'),
+      customerName:         getCellByHeader(row, headerMap, 'Customer Name'),
+      customerPhone:        getCellByHeader(row, headerMap, 'Customer Phone Number'),
+      customerAddress:      getCellByHeader(row, headerMap, 'Customer Address'),
+      totalItems:           getCellByHeader(row, headerMap, 'Total Number of Items Purchased'),
+      itemNames:            getCellByHeader(row, headerMap, 'Item(s) Name(s)'),
+      sizes:                getCellByHeader(row, headerMap, 'Size(s) Chosen'),
+      totalAmount:          getCellByHeader(row, headerMap, 'Total Amount'),
+      paymentStatus:        getCellByHeader(row, headerMap, 'Payment Status'),
+      modeOfPayment:        getCellByHeader(row, headerMap, 'Mode of Payment'),
+      transactionId:        getCellByHeader(row, headerMap, 'Transaction ID'),
+      createdAt:            getCellByHeader(row, headerMap, 'Created At'),
+      createdBy:            getCellByHeader(row, headerMap, 'Created By (Admin)'),
+      updatedAt:            getCellByHeader(row, headerMap, 'Updated At'),
+      updatedBy:            getCellByHeader(row, headerMap, 'Updated By'),
+      version:              getCellByHeader(row, headerMap, 'Version', '1'),
+      deliveryStatus:       getCellByHeader(row, headerMap, 'Delivery Status', 'Packed & Ready for Shipment'),
+      deliveryChargeToggle: getCellByHeader(row, headerMap, 'Delivery Charge Toggle') === 'true',
+      deliveryChargeAmount: parseFloat(getCellByHeader(row, headerMap, 'Delivery Charge Amount', '0')) || 0,
+      fulfilmentStatus:     getCellByHeader(row, headerMap, 'Fulfilment Request Status', 'Normal'),
+      fulfilmentSource:     getCellByHeader(row, headerMap, 'Fulfilment Source', 'Take from Inventory'),
+      saleClosedBy:         getCellByHeader(row, headerMap, 'Sale Closed By'),
+      discount:             parseFloat(getCellByHeader(row, headerMap, 'Discount', '0')) || 0,
+      customerEmail:        getCellByHeader(row, headerMap, 'Customer Email'),
+      itemPrices:           getCellByHeader(row, headerMap, 'Item Prices'),
     };
 
     return Response.json({ sale });
@@ -124,7 +100,10 @@ export async function PUT(
     const { requestAction, version: clientVersion, rowIndex, ...updates } = body;
 
     const rows = await readAllRows('sales');
-    const foundIndex = rows.slice(1).findIndex((row) => row[COL.invoiceNumber] === id);
+    if (rows.length === 0) return Response.json({ error: `Sale '${id}' not found.` }, { status: 404 });
+
+    const headerMap = buildHeaderMap(rows[0]);
+    const foundIndex = rows.slice(1).findIndex((row) => getCellByHeader(row, headerMap, 'Invoice Number') === id);
 
     if (foundIndex === -1) {
       return Response.json({ error: `Sale '${id}' not found.` }, { status: 404 });
@@ -132,9 +111,9 @@ export async function PUT(
 
     const actualRowIndex = foundIndex + 2;
     const row = rows[foundIndex + 1];
-    const currentFulfilmentStatus = row[COL.fulfilmentStatus] ?? 'Normal';
+    const currentFulfilmentStatus = getCellByHeader(row, headerMap, 'Fulfilment Request Status', 'Normal');
 
-    // 1. Handle special request actions: 'replace_requested' or 'refund_requested'
+    // Handle Replace Requested action
     if (requestAction === 'replace_requested') {
       if (currentFulfilmentStatus !== 'Normal') {
         return Response.json(
@@ -144,29 +123,38 @@ export async function PUT(
       }
 
       const now = new Date().toISOString();
-      const newVersion = String(parseInt(row[COL.version] ?? '1', 10) + 1);
+      const currentVer = parseInt(getCellByHeader(row, headerMap, 'Version', '1'), 10);
+      const newVersion = String(currentVer + 1);
 
-      const updatedRow = [...row];
-      updatedRow[COL.fulfilmentStatus] = 'Replace-Requested';
-      updatedRow[COL.updatedAt] = now;
-      updatedRow[COL.updatedBy] = admin.name;
-      updatedRow[COL.version] = newVersion;
+      const sObj: Record<string, string> = {};
+      rows[0].forEach((col, cIdx) => { sObj[col.trim()] = row[cIdx] ?? ''; });
 
-      await updateRow('sales', actualRowIndex, updatedRow);
+      sObj['Fulfilment Request Status'] = 'Replace-Requested';
+      sObj['Updated At']                = now;
+      sObj['Updated By']                = admin.name;
+      sObj['Version']                   = newVersion;
+
+      await updateRow('sales', actualRowIndex, formatRowFromHeaderMap(sObj, rows[0]));
 
       const replRows = await readAllRows('replacement');
+      const replHeaderRow = replRows[0] || [];
       const replSno = String(replRows.length);
-      await appendRows('replacement', [[
-        replSno,
-        id,
-        row[COL.totalItems] ?? '1',
-        row[COL.itemNames] ?? '',
-        row[COL.sizes] ?? '',
-        '', '',
-        'Replacement Approved',
-        '', '',
-        now, admin.name, now, admin.name, '1',
-      ]]);
+
+      const replObj: Record<string, string> = {
+        'S.No': replSno,
+        'Invoice Number': id,
+        'Total Number of Items Purchased': getCellByHeader(row, headerMap, 'Total Number of Items Purchased', '1'),
+        'Last Purchased Item(s)': getCellByHeader(row, headerMap, 'Item(s) Name(s)'),
+        'Last Purchased Item(s) Size': getCellByHeader(row, headerMap, 'Size(s) Chosen'),
+        'Invoice Status': 'Replacement Approved',
+        'Created At': now,
+        'Created By': admin.name,
+        'Updated At': now,
+        'Updated By': admin.name,
+        'Version': '1',
+      };
+
+      await appendRows('replacement', [formatRowFromHeaderMap(replObj, replHeaderRow)]);
 
       const logMsg = `${admin.name} marked sale ${id} as Replace Requested — moved to Replacement Management.`;
       await logActivity({
@@ -184,7 +172,8 @@ export async function PUT(
       });
     }
 
-    if (requestAction === 'refund_requested') {
+    // Handle Return/Refund Requested action (A1 label update: Return/Refund Requested)
+    if (requestAction === 'refund_requested' || requestAction === 'return_refund_requested') {
       if (currentFulfilmentStatus !== 'Normal') {
         return Response.json(
           { error: `Sale ${id} is already locked under ${currentFulfilmentStatus}.` },
@@ -193,32 +182,41 @@ export async function PUT(
       }
 
       const now = new Date().toISOString();
-      const newVersion = String(parseInt(row[COL.version] ?? '1', 10) + 1);
+      const currentVer = parseInt(getCellByHeader(row, headerMap, 'Version', '1'), 10);
+      const newVersion = String(currentVer + 1);
 
-      const updatedRow = [...row];
-      updatedRow[COL.fulfilmentStatus] = 'Refund-Requested';
-      updatedRow[COL.updatedAt] = now;
-      updatedRow[COL.updatedBy] = admin.name;
-      updatedRow[COL.version] = newVersion;
+      const sObj: Record<string, string> = {};
+      rows[0].forEach((col, cIdx) => { sObj[col.trim()] = row[cIdx] ?? ''; });
 
-      await updateRow('sales', actualRowIndex, updatedRow);
+      sObj['Fulfilment Request Status'] = 'Refund-Requested';
+      sObj['Updated At']                = now;
+      sObj['Updated By']                = admin.name;
+      sObj['Version']                   = newVersion;
+
+      await updateRow('sales', actualRowIndex, formatRowFromHeaderMap(sObj, rows[0]));
 
       const retRows = await readAllRows('return_refund');
+      const retHeaderRow = retRows[0] || [];
       const retSno = String(retRows.length);
-      await appendRows('return_refund', [[
-        retSno,
-        id,
-        'No Damage',
-        'Refund Pending',
-        row[COL.totalAmount] ?? '0',
-        '',
-        row[COL.transactionId] ?? '',
-        row[COL.modeOfPayment] ?? 'UPI',
-        '', '',
-        now, admin.name, now, admin.name, '1',
-      ]]);
 
-      const logMsg = `${admin.name} marked sale ${id} as Refund Requested — moved to Return/Refund Management.`;
+      const retObj: Record<string, string> = {
+        'S.No': retSno,
+        'Invoice Number': id,
+        'Item Verification Status': 'Not Received — In Transit',
+        'Refund Status': 'Refund Pending',
+        'Refund Amount': getCellByHeader(row, headerMap, 'Total Amount', '0'),
+        'Transaction ID': getCellByHeader(row, headerMap, 'Transaction ID'),
+        'Mode of Refund': getCellByHeader(row, headerMap, 'Mode of Payment', 'Cash'),
+        'Created At': now,
+        'Created By': admin.name,
+        'Updated At': now,
+        'Updated By': admin.name,
+        'Version': '1',
+      };
+
+      await appendRows('return_refund', [formatRowFromHeaderMap(retObj, retHeaderRow)]);
+
+      const logMsg = `${admin.name} marked sale ${id} as Return/Refund Requested — moved to Return/Refund Management.`;
       await logActivity({
         adminName: admin.name,
         action: 'updated',
@@ -234,7 +232,7 @@ export async function PUT(
       });
     }
 
-    // 2. Normal Edit check
+    // Normal Edit check
     if (currentFulfilmentStatus !== 'Normal') {
       const sectionName = currentFulfilmentStatus === 'Replace-Requested' ? 'Replacement Management' : 'Return / Refund Management';
       return Response.json(
@@ -247,15 +245,15 @@ export async function PUT(
       );
     }
 
-    // 3. Optimistic lock check
-    const serverVersion = row[COL.version] ?? '1';
+    // Optimistic lock check
+    const serverVersion = getCellByHeader(row, headerMap, 'Version', '1');
     if (clientVersion && String(clientVersion) !== String(serverVersion)) {
       return Response.json(
         {
-          error: `This sale was updated by ${row[COL.updatedBy]} at ${row[COL.updatedAt]} — reload to see the changes before saving yours.`,
+          error: `This sale was updated by ${getCellByHeader(row, headerMap, 'Updated By')} at ${getCellByHeader(row, headerMap, 'Updated At')} — reload to see the changes before saving yours.`,
           type: 'conflict',
-          updatedBy: row[COL.updatedBy],
-          updatedAt: row[COL.updatedAt],
+          updatedBy: getCellByHeader(row, headerMap, 'Updated By'),
+          updatedAt: getCellByHeader(row, headerMap, 'Updated At'),
         },
         { status: 409 }
       );
@@ -264,51 +262,77 @@ export async function PUT(
     const now = new Date().toISOString();
     const newVersion = String(parseInt(serverVersion, 10) + 1);
 
-    const nextPaymentStatus  = updates.paymentStatus  ?? row[COL.paymentStatus];
-    const nextDeliveryStatus = updates.deliveryStatus ?? row[COL.deliveryStatus];
-    const nextSaleStatus     = updates.saleStatus     ?? row[COL.saleStatus];
+    const nextPaymentStatus  = updates.paymentStatus  ?? getCellByHeader(row, headerMap, 'Payment Status');
+    const nextDeliveryStatus = updates.deliveryStatus ?? getCellByHeader(row, headerMap, 'Delivery Status');
+    const nextSaleStatus     = updates.saleStatus     ?? getCellByHeader(row, headerMap, 'Sale Status');
 
     const isCompletedNow = (nextPaymentStatus === 'Paid' && nextDeliveryStatus === 'Order Delivered Successfully') ||
                            (nextSaleStatus && nextSaleStatus.includes('Purchase Satisfied'));
 
-    let saleClosedByVal = row[COL.saleClosedBy] ?? '';
+    let saleClosedByVal = getCellByHeader(row, headerMap, 'Sale Closed By');
     if (isCompletedNow) {
       saleClosedByVal = admin.name;
     } else if (nextPaymentStatus !== 'Paid') {
       saleClosedByVal = '';
     }
 
-    const newRow = [
-      row[COL.sno],
-      row[COL.invoiceNumber],
-      nextSaleStatus,
-      updates.customerName    ?? row[COL.customerName],
-      updates.customerPhone   ?? row[COL.customerPhone],
-      updates.customerAddress ?? row[COL.customerAddress],
-      updates.totalItems      ?? row[COL.totalItems],
-      Array.isArray(updates.itemNames) ? updates.itemNames.join(', ') : (updates.itemNames ?? row[COL.itemNames]),
-      Array.isArray(updates.sizes)     ? updates.sizes.join(', ')     : (updates.sizes     ?? row[COL.sizes]),
-      updates.itemPrices      ?? row[COL.itemPrices]      ?? '',
-      updates.totalAmount     ?? row[COL.totalAmount],
-      nextPaymentStatus,
-      updates.modeOfPayment   ?? row[COL.modeOfPayment],
-      updates.transactionId   ?? row[COL.transactionId],
-      row[COL.createdAt],
-      row[COL.createdBy],
-      now,
-      admin.name,
-      newVersion,
-      nextDeliveryStatus,
-      String(updates.deliveryChargeToggle ?? row[COL.deliveryChargeToggle] ?? 'false'),
-      String(updates.deliveryChargeAmount ?? row[COL.deliveryChargeAmount] ?? '0'),
-      row[COL.fulfilmentStatus]    ?? 'Normal',
-      updates.fulfilmentSource     ?? row[COL.fulfilmentSource]     ?? 'Take from Inventory',
-      saleClosedByVal,
-      String(updates.discount     ?? row[COL.discount]     ?? '0'),
-      updates.customerEmail   ?? row[COL.customerEmail]   ?? '',
-    ];
+    // A3 Fix: Recalculate totalAmount using consolidated pricing helper whenever amount-affecting fields are sent
+    const itemPricesArr = (updates.itemPrices ?? getCellByHeader(row, headerMap, 'Item Prices')).split(',').map((p: string) => parseFloat(p.trim()) || 0);
+    const rawSubtotal = itemPricesArr.reduce((sum: number, p: number) => sum + p, 0);
 
-    await updateRow('sales', actualRowIndex, newRow);
+    const delivToggle = updates.deliveryChargeToggle !== undefined
+      ? Boolean(updates.deliveryChargeToggle)
+      : (getCellByHeader(row, headerMap, 'Delivery Charge Toggle') === 'true');
+    const delivAmount = updates.deliveryChargeAmount !== undefined
+      ? parseFloat(String(updates.deliveryChargeAmount)) || 0
+      : (parseFloat(getCellByHeader(row, headerMap, 'Delivery Charge Amount', '0')) || 0);
+    const discountVal = updates.discount !== undefined
+      ? parseFloat(String(updates.discount)) || 0
+      : (parseFloat(getCellByHeader(row, headerMap, 'Discount', '0')) || 0);
+
+    // If frontend passed an explicit totalAmount, or we calculate it from subtotal/discount/deliveryCharge
+    const calculatedPricing = calculateSaleTotalAmount({
+      items: rawSubtotal > 0 ? rawSubtotal : parseFloat(getCellByHeader(row, headerMap, 'Total Amount', '0')) || 0,
+      discount: discountVal,
+      deliveryChargeToggle: delivToggle,
+      deliveryChargeAmount: delivAmount,
+    });
+
+    const finalTotalAmount = updates.totalAmount !== undefined
+      ? String(updates.totalAmount)
+      : String(calculatedPricing.grandTotal);
+
+    const sObj: Record<string, string> = {
+      'S.No':                            getCellByHeader(row, headerMap, 'S.No'),
+      'Invoice Number':                  getCellByHeader(row, headerMap, 'Invoice Number'),
+      'Sale Status':                     nextSaleStatus,
+      'Customer Name':                   updates.customerName    ?? getCellByHeader(row, headerMap, 'Customer Name'),
+      'Customer Phone Number':           updates.customerPhone   ?? getCellByHeader(row, headerMap, 'Customer Phone Number'),
+      'Customer Address':                updates.customerAddress ?? getCellByHeader(row, headerMap, 'Customer Address'),
+      'Total Number of Items Purchased': updates.totalItems      ?? getCellByHeader(row, headerMap, 'Total Number of Items Purchased'),
+      'Item(s) Name(s)':                 Array.isArray(updates.itemNames) ? updates.itemNames.join(', ') : (updates.itemNames ?? getCellByHeader(row, headerMap, 'Item(s) Name(s)')),
+      'Size(s) Chosen':                  Array.isArray(updates.sizes)     ? updates.sizes.join(', ')     : (updates.sizes     ?? getCellByHeader(row, headerMap, 'Size(s) Chosen')),
+      'Item Prices':                     updates.itemPrices      ?? getCellByHeader(row, headerMap, 'Item Prices'),
+      'Total Amount':                    finalTotalAmount,
+      'Payment Status':                  nextPaymentStatus,
+      'Mode of Payment':                 updates.modeOfPayment   ?? getCellByHeader(row, headerMap, 'Mode of Payment'),
+      'Transaction ID':                  updates.transactionId   ?? getCellByHeader(row, headerMap, 'Transaction ID'),
+      'Created At':                      getCellByHeader(row, headerMap, 'Created At'),
+      'Created By (Admin)':              getCellByHeader(row, headerMap, 'Created By (Admin)'),
+      'Updated At':                      now,
+      'Updated By':                      admin.name,
+      'Version':                         newVersion,
+      'Delivery Status':                 nextDeliveryStatus,
+      'Delivery Charge Toggle':          String(delivToggle),
+      'Delivery Charge Amount':          String(delivAmount),
+      'Fulfilment Request Status':       getCellByHeader(row, headerMap, 'Fulfilment Request Status', 'Normal'),
+      'Fulfilment Source':               updates.fulfilmentSource ?? getCellByHeader(row, headerMap, 'Fulfilment Source', 'Take from Inventory'),
+      'Sale Closed By':                  saleClosedByVal,
+      'Discount':                        String(discountVal),
+      'Customer Email':                  updates.customerEmail   ?? getCellByHeader(row, headerMap, 'Customer Email'),
+    };
+
+    await updateRow('sales', actualRowIndex, formatRowFromHeaderMap(sObj, rows[0]));
 
     await logActivity({
       adminName: admin.name,
@@ -322,6 +346,7 @@ export async function PUT(
       success: true,
       version: newVersion,
       saleClosedBy: saleClosedByVal,
+      totalAmount: finalTotalAmount,
       message: `Sale ${id} updated successfully by ${admin.name}.`,
     });
   } catch (err) {
@@ -345,7 +370,10 @@ export async function DELETE(
   try {
     const { id } = await params;
     const rows = await readAllRows('sales');
-    const foundIndex = rows.slice(1).findIndex((row) => row[COL.invoiceNumber] === id);
+    if (rows.length === 0) return Response.json({ error: `Sale '${id}' not found.` }, { status: 404 });
+
+    const headerMap = buildHeaderMap(rows[0]);
+    const foundIndex = rows.slice(1).findIndex((row) => getCellByHeader(row, headerMap, 'Invoice Number') === id);
 
     if (foundIndex === -1) {
       return Response.json({ error: `Sale '${id}' not found.` }, { status: 404 });
@@ -354,9 +382,9 @@ export async function DELETE(
     const actualRowIndex = foundIndex + 2;
     const row = rows[foundIndex + 1];
 
-    if ((row[COL.fulfilmentStatus] ?? 'Normal') !== 'Normal') {
+    if ((getCellByHeader(row, headerMap, 'Fulfilment Request Status', 'Normal')) !== 'Normal') {
       return Response.json(
-        { error: `Cannot delete sale ${id} while it is locked under ${row[COL.fulfilmentStatus]}.` },
+        { error: `Cannot delete sale ${id} while it is locked.` },
         { status: 400 }
       );
     }
@@ -367,8 +395,8 @@ export async function DELETE(
       adminName: admin.name,
       action:    'deleted',
       module:    'Sales Management',
-      moduleKey: 'sales',
-      recordId:  id,
+      moduleKey:  'sales',
+      recordId:   id,
     });
 
     return Response.json({ success: true, message: `Sale ${id} deleted.` });

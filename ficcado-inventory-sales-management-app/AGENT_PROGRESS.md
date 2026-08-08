@@ -74,3 +74,24 @@ All Phase 18 through Phase 24 requirements from `Part3_of_implementation_ficcado
    - Updated copy explains service-account Editor access requirement.
    - `customer_info` module added to wizard's module list.
 
+## 2026-08-08 - PART 4 COMPLETE
+All Phase 28 through Phase 34 requirements from `Part4_of_implementation_ficcado.md` fully implemented and verified:
+
+1. **Refactors (Phase 28)**:
+   - **A1**: Renamed "Refund Requested" button/label to **"Return/Refund Requested"** across Sales view/edit UI (`app/(app)/dashboard/sales/page.tsx`, `app/(app)/dashboard/sales/[id]/page.tsx`, `app/api/sales/[id]/route.ts`).
+   - **A2**: Audited and refactored sheet reads/writes across Replacement, Sales, Return/Refund, Warehouse, and Inventory to use position-independent header mapping (`lib/google/headerUtils.ts`). Added `verifySheetHeaders` safeguard for first-read header verification per session.
+   - **A3**: Created `lib/salesPricing.ts` (`calculateSaleTotalAmount`) to consolidate Total Amount recalculation. Sale edit form now recalculates Grand Total live on any delivery charge or discount change and saves the updated amount to Google Sheets.
+
+2. **Online Indicator Simplification (Phase 29 / B1)**:
+   - Removed all relative timestamps ("just now", "1 min ago") and duration phrasing from the sidebar Online indicator popover (`components/AppSidebar.tsx`). The popover now displays avatar initials, names, and active green dots only.
+
+3. **Return & Refund Dedicated Page & Full Overhaul (Phases 30–33 / B2.A–B2.G)**:
+   - **B2.A**: Created dedicated routed page at `/dashboard/return-refund/[id]` matching Replacement edit experience. Removed legacy modal code from `app/(app)/dashboard/return-refund/page.tsx`.
+   - **B2.F**: Implemented purchased-items summary table at the top of the Return/Refund page showing original item list, sizes, quantities, prices, subtotal, original discount, and delivery charge.
+   - **B2.B & B2.C**: Implemented partial-item, partial-quantity return selection (unchecked by default). Added 3-value Item Verification Status (`Good — Accepted for Return`, `Damaged — Cannot Accept Return`, `Not Received — In Transit`). Item Disposition Path is dynamically hidden when status is `Damaged`. Added Refund Mode selection with mandatory Transaction ID for non-Cash refunds.
+   - **B2.D & B2.E**: Full-order return refund amount is sourced directly from Sales sheet Total Amount, preserving original sale discounts and delivery charges.
+   - **B2.G**: Added 10 new columns to `MODULE_HEADERS.return_refund` (`Returned Item(s)`, `Returned Item Size(s)`, `Returned Item Quantity(ies)`, `Price Charged (Returned Items)`, `New Final Items Selected`, `New Final Items Sizes`, `Number of New Final Items`, `New Final Items Prices Each`, `New Discount Applied`, `New Final Items Total Amount`). Implemented automatic remaining items calculation with `Add Discount` button. Added `Save Progress` button writing state to Return/Refund sheet ONLY.
+   - **B2.C Close Ticket Validation Gate**: Enforced 5 validation checks on Close Ticket (all returned items have verification status, refund status is Approved/Completed, refund amount > 0, refund mode != null, transaction ID present if non-Cash). Failures display an inline itemized "Missing Information" section.
+
+4. **Audit & Build Verification (Phase 34)**:
+   - Verified TypeScript compilation (`node node_modules/typescript/bin/tsc --noEmit`) with zero errors across all components, API routes, and schema utilities.

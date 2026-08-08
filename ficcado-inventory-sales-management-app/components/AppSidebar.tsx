@@ -4,7 +4,8 @@
  * components/AppSidebar.tsx
  *
  * Main navigation sidebar — visible to all logged-in admins.
- * Part 3: Online presence indicator (heartbeat every 60s + click-to-expand popover).
+ * Part 4 (B1): Online presence indicator simplified — displays names and avatars only,
+ * with zero session duration or relative last-active text.
  */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -107,14 +108,6 @@ export default function AppSidebar({ adminName, adminRole, onLogout }: AppSideba
     }
   }
 
-  function formatLastSeen(iso: string): string {
-    const diff = Date.now() - new Date(iso).getTime();
-    const mins = Math.floor(diff / 60_000);
-    if (mins < 1) return 'just now';
-    if (mins === 1) return '1 min ago';
-    return `${mins} min ago`;
-  }
-
   return (
     <aside className="app-sidebar">
       {/* Brand logo area */}
@@ -152,7 +145,6 @@ export default function AppSidebar({ adminName, adminRole, onLogout }: AppSideba
               </div>
             </div>
           </div>
-          {/* Notification bell in sidebar header */}
           <NotificationBell />
         </div>
 
@@ -194,7 +186,7 @@ export default function AppSidebar({ adminName, adminRole, onLogout }: AppSideba
             <span style={{ fontSize: 11, fontWeight: 600, color: '#2F7D4F' }}>Online</span>
           </button>
 
-          {/* Presence popover */}
+          {/* Presence popover (B1: Names & Avatars only — no duration/relative timestamps) */}
           {showPresencePopover && (
             <div style={{
               position:        'absolute',
@@ -216,7 +208,7 @@ export default function AppSidebar({ adminName, adminRole, onLogout }: AppSideba
                 <div style={{ fontSize: 12, color: 'var(--color-ink-muted)', padding: '4px 0' }}>Loading…</div>
               ) : onlineAdmins.length === 0 ? (
                 <div style={{ fontSize: 12, color: 'var(--color-ink-muted)', padding: '4px 0' }}>
-                  No other admins active in the last 3 minutes.
+                  No other admins online.
                 </div>
               ) : (
                 onlineAdmins.map((a) => (
@@ -224,7 +216,7 @@ export default function AppSidebar({ adminName, adminRole, onLogout }: AppSideba
                     display:     'flex',
                     alignItems:  'center',
                     gap:         8,
-                    padding:     '5px 0',
+                    padding:     '6px 0',
                     borderBottom: '1px solid var(--color-border)',
                   }}>
                     <div style={{
@@ -242,9 +234,8 @@ export default function AppSidebar({ adminName, adminRole, onLogout }: AppSideba
                     }}>
                       {a.initial}
                     </div>
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-ink)' }}>{a.name}</div>
-                      <div style={{ fontSize: 10, color: 'var(--color-ink-muted)' }}>{formatLastSeen(a.lastActiveAt)}</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-ink)' }}>
+                      {a.name}
                     </div>
                     <span style={{
                       marginLeft:      'auto',
@@ -257,10 +248,6 @@ export default function AppSidebar({ adminName, adminRole, onLogout }: AppSideba
                   </div>
                 ))
               )}
-
-              <div style={{ fontSize: 10, color: 'var(--color-ink-muted)', marginTop: 8, textAlign: 'right' }}>
-                Updates every 60s · 3 min window
-              </div>
             </div>
           )}
         </div>
@@ -323,7 +310,6 @@ export default function AppSidebar({ adminName, adminRole, onLogout }: AppSideba
         </button>
       </div>
 
-      {/* Pulse animation keyframe injected inline */}
       <style>{`
         @keyframes pulse-ring {
           0%   { transform: scale(1);   opacity: 0.4; }

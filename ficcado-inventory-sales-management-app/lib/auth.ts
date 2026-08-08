@@ -27,10 +27,8 @@ export interface SessionAdmin {
 
 /** Get the JWT signing secret. */
 function getJwtSecret(): string {
-  // Prefer an explicit JWT_SECRET if set
   if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
 
-  // Derive from the service account private_key_id as a fallback
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY ?? '';
   const match = raw.match(/"private_key_id"\s*:\s*"([a-f0-9]+)"/);
   if (match) return `ficcado-jwt-${match[1]}`;
@@ -56,12 +54,10 @@ export function verifyJwt(token: string): SessionAdmin | null {
 export async function resolveAdminName(sessionAdmin: SessionAdmin): Promise<SessionAdmin> {
   if (!sessionAdmin) return sessionAdmin;
 
-  // Regular admins logged in with their own account always use their own name directly
   if (sessionAdmin.role === 'admin' || (sessionAdmin.name && sessionAdmin.name.toLowerCase() !== 'superadmin')) {
     return sessionAdmin;
   }
 
-  // If superadmin is logged in, try to match by email in admin_info if an email exists
   if (sessionAdmin.email) {
     try {
       const adminRows = await readAllRows('admin_info');
@@ -87,7 +83,6 @@ export async function resolveAdminName(sessionAdmin: SessionAdmin): Promise<Sess
 /**
  * Read the session cookie and return the authenticated admin.
  * Returns null if not authenticated or session is expired/invalid.
- * Must be called from a server component or route handler.
  */
 export async function getSessionAdmin(): Promise<SessionAdmin | null> {
   const cookieStore = await cookies();
@@ -98,7 +93,6 @@ export async function getSessionAdmin(): Promise<SessionAdmin | null> {
 
 /**
  * Throws a 401 Response if not authenticated.
- * Use at the top of API route handlers.
  */
 export async function requireAuth(): Promise<SessionAdmin> {
   const admin = await getSessionAdmin();
@@ -109,6 +103,19 @@ export async function requireAuth(): Promise<SessionAdmin> {
     );
   }
   return await resolveAdminName(admin);
+}
+
+/**
+ * Helper that resolves session admin or returns a standard 401 Response cleanly.
+ */
+export async function getAuthSession(): Promise<{ admin: SessionAdmin } | { errorResponse: Response }> {
+  try {
+    const admin = await requireAuth();
+    return { admin };
+  } catch (e) {
+    if (e instanceof Response) return { errorResponse: e };
+    return { errorResponse: Response.json({ error: 'Authentication required.' }, { status: 401 }) };
+  }
 }
 
 /**

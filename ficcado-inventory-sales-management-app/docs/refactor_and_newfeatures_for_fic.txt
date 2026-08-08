@@ -88,3 +88,14 @@ when a replacement was made and the items are camera- blue size m quantity 2 and
 the current columns are : S.No	Invoice Number	Total Number of Items Purchased	Last Purchased Item(s)	Last Purchased Item(s) Size	New Item(s)	New Item(s) Size	Invoice Status	Disposition of Old Items	Restock Destination	Created At
 
 find me solution for this situation, create a plan
+
+
+
+
+
+
+
+So there is a huge mistake hidden under the replacement logic we had made which was:
+when a replacement was created admin goes to the manage/update and performs the changes and clicks save progress. here as soon as the save progress was made all the transaction in the inventory are made the restocking, adding and removing etc everything happens at that point and then admin goes back and comes back again he gets all the new stocks needed to be given to customer and here at this point all the values are changes and set into a different value where previous save progress were gone 
+
+

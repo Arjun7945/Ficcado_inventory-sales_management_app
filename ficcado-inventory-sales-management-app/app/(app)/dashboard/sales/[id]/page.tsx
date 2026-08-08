@@ -4,11 +4,9 @@
  * app/(app)/dashboard/sales/[id]/page.tsx
  * Single Sale Order Details & Actions View.
  *
- * Features:
- * - View & update order details (Customer info, Delivery Status, Payment Status).
- * - "✓ Sale Completed" button action with interactive payment verification modal.
- * - Replace / Refund request initiation dialogs.
- * - Enforces Replace/Refund workflow locking.
+ * Updated with:
+ * - A1: Rename "Refund Requested" -> "Return/Refund Requested"
+ * - A3: Consolidated Total Amount live recalculation on edit (delivery charge, discount change)
  */
 
 import React, { useEffect, useState, use } from 'react';
@@ -16,6 +14,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
+import { calculateSaleTotalAmount } from '@/lib/salesPricing';
 
 interface Sale {
   rowIndex:             number;
@@ -42,6 +41,8 @@ interface Sale {
   fulfilmentStatus:     string;
   fulfilmentSource:     string;
   saleClosedBy?:        string;
+  discount?:            number;
+  itemPrices?:          string;
 }
 
 export default function SaleDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -112,6 +113,23 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
 
   const isLocked = sale ? sale.fulfilmentStatus !== 'Normal' : false;
 
+  // Calculate live items subtotal from sale itemPrices or totalAmount
+  const itemsPricesArr = (sale?.itemPrices || '').split(',').map((p) => parseFloat(p.trim()) || 0);
+  const rawItemsSubtotal = itemsPricesArr.reduce((sum, p) => sum + p, 0);
+
+  const discountVal = sale?.discount || 0;
+  const currentTotalAmount = parseFloat(sale?.totalAmount || '0') || 0;
+  const currentDelivCharge = sale?.deliveryChargeToggle ? (sale.deliveryChargeAmount || 0) : 0;
+  const computedSubtotal = rawItemsSubtotal > 0 ? rawItemsSubtotal : (currentTotalAmount - currentDelivCharge + discountVal);
+
+  // Live recalculated grand total using consolidated pricing module
+  const livePricing = calculateSaleTotalAmount({
+    items: computedSubtotal,
+    discount: discountVal,
+    deliveryChargeToggle,
+    deliveryChargeAmount: parseFloat(deliveryChargeAmount || '0') || 0,
+  });
+
   async function handleSaveChanges(e: React.FormEvent) {
     e.preventDefault();
     if (!sale) return;
@@ -133,7 +151,6 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
       return;
     }
 
-    // Auto-sync saleStatus to Purchase Satisfied & Order Completed if paid and delivered
     let targetSaleStatus = saleStatus;
     if (paymentStatus === 'Paid' && deliveryStatus === 'Order Delivered Successfully' && (saleStatus === 'Payment Pending' || saleStatus === 'Not Provided / Order Only Placed')) {
       targetSaleStatus = 'Purchase Satisfied & Order Completed';
@@ -156,6 +173,7 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
           deliveryStatus,
           deliveryChargeToggle,
           deliveryChargeAmount: deliveryChargeToggle ? parseFloat(deliveryChargeAmount || '0') : 0,
+          totalAmount:          livePricing.grandTotal,
         }),
       });
 
@@ -184,20 +202,17 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
     }
   }
 
-  // Handle "Sale Completed" button click
   function handleOpenSaleCompletedModal() {
     if (!sale) return;
     setCompletionError(null);
 
     if (paymentStatus === 'Paid') {
-      // Payment already confirmed — execute completion immediately
       executeSaleCompletion({
         payStatus: 'Paid',
         payMode:   modeOfPayment,
         txId:      transactionId,
       });
     } else {
-      // Payment not marked paid — open interactive verification modal
       setCompletionPaymentChoice('paid_now');
       setCompletionModeOfPayment('Cash');
       setCompletionTransactionId('');
@@ -224,6 +239,7 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
           deliveryStatus:       'Order Delivered Successfully',
           deliveryChargeToggle,
           deliveryChargeAmount: deliveryChargeToggle ? parseFloat(deliveryChargeAmount || '0') : 0,
+          totalAmount:          livePricing.grandTotal,
         }),
       });
 
@@ -352,7 +368,7 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
         </div>
       </div>
 
-      {/* Locked Banner Notification */}
+      {/* Locked Banner */}
       {isLocked && (
         <div style={{
           background: 'rgba(255, 152, 0, 0.12)',
@@ -384,7 +400,7 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
       {error && <ErrorMessage message={error.message} hint={error.hint} variant={error.variant || 'error'} onDismiss={() => setError(null)} />}
       {successMsg && <ErrorMessage message={successMsg} variant="success" onDismiss={() => setSuccessMsg(null)} />}
 
-      {/* Order Summary & Sourcing */}
+      {/* Order Summary */}
       <div className="card" style={{ marginBottom: 24, opacity: isLocked ? 0.85 : 1 }}>
         <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16 }}>Order Overview & Sourcing</h2>
@@ -394,8 +410,9 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => setConfirmAction('replace')}>
                   🔄 Replace Requested
                 </button>
+                {/* A1 Label Update: Return/Refund Requested */}
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => setConfirmAction('refund')}>
-                  ↩ Refund Requested
+                  ↩ Return/Refund Requested
                 </button>
               </>
             )}
@@ -418,7 +435,7 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
           <div>
             <div className="form-label" style={{ fontSize: 11 }}>TOTAL AMOUNT</div>
             <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-brand-primary)' }} className="tabular-nums">
-              ₹{parseFloat(sale?.totalAmount || '0').toLocaleString('en-IN')}
+              ₹{livePricing.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </div>
           </div>
 
@@ -433,7 +450,7 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
         </div>
       </div>
 
-      {/* Purchased Items Section */}
+      {/* Purchased Items Table */}
       <div className="card" style={{ marginBottom: 24, opacity: isLocked ? 0.85 : 1 }}>
         <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, marginBottom: 16, borderBottom: '1px solid var(--color-border)', paddingBottom: 8 }}>
           Purchased Items
@@ -442,7 +459,7 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
         {(() => {
           const names = (sale?.itemNames || '').split(',').map((n) => n.trim()).filter(Boolean);
           const sizes = (sale?.sizes || '').split(',').map((s) => s.trim()).filter(Boolean);
-          const prices = ((sale as any)?.itemPrices || '').split(',').map((p: string) => parseFloat(p.trim()) || 0);
+          const prices = (sale?.itemPrices || '').split(',').map((p) => parseFloat(p.trim()) || 0);
 
           const map = new Map<string, { name: string; size: string; qty: number; unitPrice: number }>();
           for (let i = 0; i < names.length; i++) {
@@ -457,11 +474,6 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
             }
           }
           const lineItems = Array.from(map.values());
-          const grandTotal = parseFloat(sale?.totalAmount || '0') || 0;
-          const discount = (sale as any)?.discount || 0;
-          const delivCharge = sale?.deliveryChargeToggle ? (sale?.deliveryChargeAmount || 0) : 0;
-          const rawItemsSubtotal = lineItems.reduce((sum, item) => sum + (item.qty * item.unitPrice), 0);
-          const itemsSubtotal = rawItemsSubtotal > 0 ? rawItemsSubtotal : (grandTotal - delivCharge + discount);
 
           return (
             <div>
@@ -479,7 +491,7 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
                   <tbody>
                     {lineItems.map((item, idx) => {
                       const totalPieces = lineItems.reduce((sum, i) => sum + i.qty, 0);
-                      const fallbackPrice = totalPieces > 0 ? itemsSubtotal / totalPieces : 0;
+                      const fallbackPrice = totalPieces > 0 ? computedSubtotal / totalPieces : 0;
                       const price = item.unitPrice > 0 ? item.unitPrice : fallbackPrice;
                       const total = price * item.qty;
                       return (
@@ -498,7 +510,7 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
                 </table>
               </div>
 
-              {/* Final Summary Breakdown */}
+              {/* Summary Breakdown */}
               <div style={{
                 borderTop: '1px solid var(--color-border)',
                 paddingTop: 12,
@@ -510,18 +522,18 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', width: 260, color: 'var(--color-ink-muted)' }}>
                   <span>Subtotal:</span>
-                  <span className="tabular-nums" style={{ fontWeight: 600, color: 'var(--color-ink)' }}>₹{itemsSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  <span className="tabular-nums" style={{ fontWeight: 600, color: 'var(--color-ink)' }}>₹{computedSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                 </div>
-                {discount > 0 && (
+                {discountVal > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', width: 260, color: 'var(--color-error)' }}>
                     <span>Discount:</span>
-                    <span className="tabular-nums" style={{ fontWeight: 600 }}>-₹{discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    <span className="tabular-nums" style={{ fontWeight: 600 }}>-₹{discountVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                   </div>
                 )}
-                {delivCharge > 0 && (
+                {livePricing.deliveryCharge > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', width: 260, color: 'var(--color-ink-muted)' }}>
                     <span>Delivery Charge:</span>
-                    <span className="tabular-nums" style={{ fontWeight: 600, color: 'var(--color-ink)' }}>+₹{delivCharge.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    <span className="tabular-nums" style={{ fontWeight: 600, color: 'var(--color-ink)' }}>+₹{livePricing.deliveryCharge.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                   </div>
                 )}
                 <div style={{
@@ -536,7 +548,7 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
                   color: 'var(--color-brand-primary)',
                 }}>
                   <span>Total Amount:</span>
-                  <span className="tabular-nums">₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  <span className="tabular-nums">₹{livePricing.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                 </div>
               </div>
             </div>
@@ -696,17 +708,17 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
         </fieldset>
       </form>
 
-      {/* Confirmation Dialogs for Replace / Refund Requests */}
+      {/* Confirmation Dialogs for Replace / Return & Refund Requests */}
       {confirmAction && (
         <div className="modal-backdrop" onClick={() => setConfirmAction(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
             <div className="modal-header">
-              <h2>Confirm {confirmAction === 'replace' ? 'Replacement' : 'Refund'} Request</h2>
+              <h2>Confirm {confirmAction === 'replace' ? 'Replacement' : 'Return/Refund'} Request</h2>
               <button className="btn-icon" onClick={() => setConfirmAction(null)}>×</button>
             </div>
             <div className="modal-body">
               <p style={{ fontSize: 14, lineHeight: 1.5 }}>
-                Are you sure you want to mark Invoice <strong>{invoiceId}</strong> as <strong>{confirmAction === 'replace' ? 'Replace Requested' : 'Refund Requested'}</strong>?
+                Are you sure you want to mark Invoice <strong>{invoiceId}</strong> as <strong>{confirmAction === 'replace' ? 'Replace Requested' : 'Return/Refund Requested'}</strong>?
               </p>
               <p style={{ fontSize: 13, color: 'var(--color-ink-muted)', marginTop: 8 }}>
                 This will lock standard editing on this sale record and create a new workflow entry in the {confirmAction === 'replace' ? 'Replacement Management' : 'Return / Refund Management'} section.
@@ -802,16 +814,9 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
               </div>
 
               <div className="modal-footer">
-                <button type="button" className="btn btn-ghost" onClick={() => setShowCompleteModal(false)}>
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  style={{ background: '#2e7d32', borderColor: '#2e7d32' }}
-                  disabled={saving}
-                >
-                  {saving ? <LoadingGecko size="inline" label="Completing sale..." /> : '✓ Confirm Payment & Complete Sale'}
+                <button type="button" className="btn btn-ghost" onClick={() => setShowCompleteModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={saving}>
+                  {saving ? <LoadingGecko size="inline" label="Completing..." /> : '✓ Confirm & Complete Sale'}
                 </button>
               </div>
             </form>

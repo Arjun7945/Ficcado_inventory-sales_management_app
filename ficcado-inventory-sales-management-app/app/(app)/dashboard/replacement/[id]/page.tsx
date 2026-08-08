@@ -4,9 +4,14 @@
  * app/(app)/dashboard/replacement/[id]/page.tsx
  * Dedicated Replacement Handling & Completion Page.
  *
- * Pre-populates all existing saved replacement fields (new items, new sizes, disposition, restock dest,
- * removed items, prices per item, total replacement amount), provides real-time stock source validation,
- * quantity controls (+/-), and a top "✓ Replacement Completed" action button.
+ * Adheres strictly to Ficcado Design System (docs/DESIGN.md).
+ * Includes:
+ * - Step 1: Select Old Item(s) to Exchange
+ * - Step 2: Select New Replacement Items & Quantities
+ * - Step 3: Select New Stock Source Location
+ * - Step 4: Mandatory Old Item Disposition & Restock Destination
+ * - Step 5: Optional Delivery Charge & Discount Customization
+ * - Bottom Summary: New Final Order Basket Breakdown Table & Totals (Subtotal, Discount, Delivery, Grand Total)
  */
 
 import { useEffect, useState, use } from 'react';
@@ -14,6 +19,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
+import { calculateSaleTotalAmount } from '@/lib/salesPricing';
 
 interface ReplacementRecord {
   rowIndex: number;
@@ -35,6 +41,8 @@ interface ReplacementRecord {
   newFinalItemsPricesEach?: string;
   newFinalItemsTotalAmount?: string;
   newStockSource?: string;
+  newDeliveryCharge?: string;
+  newDiscount?: string;
   createdAt: string;
   createdBy: string;
   version: string;
@@ -48,6 +56,9 @@ interface SaleDetails {
   sizes: string;
   saleStatus: string;
   deliveryStatus: string;
+  discount?: number;
+  deliveryChargeToggle?: boolean;
+  deliveryChargeAmount?: number;
 }
 
 interface InventoryStockItem {
@@ -97,6 +108,13 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
   const [newStockSource, setNewStockSource] = useState('Main Inventory');
   const [statusVal, setStatusVal] = useState('Replacement Approved');
 
+  // Step 5: Delivery Charge & Discount Customization
+  const [replaceDeliveryToggle, setReplaceDeliveryToggle] = useState(false);
+  const [newDeliveryChargeVal, setNewDeliveryChargeVal] = useState('0');
+
+  const [replaceDiscountToggle, setReplaceDiscountToggle] = useState(false);
+  const [newDiscountVal, setNewDiscountVal] = useState('0');
+
   async function loadDetails() {
     setLoading(true);
     setError(null);
@@ -126,12 +144,21 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
       setWarehouseStock(data.warehouseStock || []);
       setAdmins(data.admins || []);
 
-      const r = data.replacement;
+      const r = data.replacement as ReplacementRecord;
       if (r) {
         setStatusVal(r.invoiceStatus || 'Replacement Approved');
-        if (r.disposition) setDisposition(r.disposition);
+        if (r.disposition) setDisposition(r.disposition as any);
         if (r.restockDestination) setRestockDestination(r.restockDestination);
         if (r.newStockSource) setNewStockSource(r.newStockSource);
+
+        if (r.newDeliveryCharge !== undefined && r.newDeliveryCharge !== '') {
+          setReplaceDeliveryToggle(true);
+          setNewDeliveryChargeVal(r.newDeliveryCharge);
+        }
+        if (r.newDiscount !== undefined && r.newDiscount !== '') {
+          setReplaceDiscountToggle(true);
+          setNewDiscountVal(r.newDiscount);
+        }
       }
 
       // Pre-select old items (ONLY if previously saved by admin)
@@ -172,7 +199,6 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
           });
         }
 
-        // Pre-select only the exact matched indices
         setSelectedOldIndices(initialIndices);
       }
 
@@ -185,35 +211,117 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
         const finalSizesArr  = (r.newFinalItemsSizes || '').split(',').map((s: string) => s.trim().toLowerCase());
         const finalPricesArr = (r.newFinalItemsPricesEach || '').split(',').map((s: string) => parseFloat(s.trim()) || 0);
 
+        let issuedItemsArr: { name: string; size: string; unitPrice: number }[] = [];
+
         if (newNamesStr.trim()) {
           const names = newNamesStr.split(',').map((s: string) => s.trim());
           const sizes = newSizesStr.split(',').map((s: string) => s.trim());
 
+          names.forEach((n: string, i: number) => {
+            if (n) {
+              const sz = sizes[i] || sizes[0] || 'M';
+              issuedItemsArr.push({ name: n, size: sz, unitPrice: 0 });
+            }
+          });
+        }
+
+        // Fallback for legacy rows: compute extra items from newFinalItemsSelected minus retained items
+        if (r.newFinalItemsSelected && r.newFinalItemsSelected.trim() && data.saleDetails && data.saleDetails.itemNames) {
+          const saleItemNames = data.saleDetails.itemNames.split(',').map((s: string) => s.trim());
+          const saleItemSizes = (data.saleDetails.sizes || '').split(',').map((s: string) => s.trim());
+
+          const removedNamesStr = r.removedItemFromLastPurchase || '';
+          const removedSizesStr = r.sizesOfRemovedItemFromLastPurchase || '';
+          const removedQtysStr  = r.numberOfRemovedItemFromLastPurchase || '';
+
+          const retainedList = saleItemNames.map((n: string, idx: number) => ({
+            name: n,
+            size: saleItemSizes[idx] || 'M',
+          }));
+
+          if (removedNamesStr.trim()) {
+            const remNames = removedNamesStr.split(',').map((s: string) => s.trim());
+            const remSizes = removedSizesStr.split(',').map((s: string) => s.trim());
+            const remQtys  = removedQtysStr.split(',').map((s: string) => parseInt(s.trim(), 10) || 1);
+
+            remNames.forEach((remName: string, i: number) => {
+              const remSize = remSizes[i] || '';
+              let needed = remQtys[i] || 1;
+              for (let k = 0; k < retainedList.length && needed > 0; k++) {
+                if (
+                  retainedList[k].name.toLowerCase() === remName.toLowerCase() &&
+                  (!remSize || retainedList[k].size.toLowerCase() === remSize.toLowerCase())
+                ) {
+                  retainedList.splice(k, 1);
+                  k--;
+                  needed--;
+                }
+              }
+            });
+          }
+
+          const extraIssued: { name: string; size: string; unitPrice: number }[] = [];
+          const tempRetained = [...retainedList];
+
+          finalNamesArr.forEach((fn: string, k: number) => {
+            const fsz = finalSizesArr[k] || 'm';
+            const fprice = finalPricesArr[k] || 0;
+
+            let matchedIdx = -1;
+            for (let rIdx = 0; rIdx < tempRetained.length; rIdx++) {
+              if (
+                tempRetained[rIdx].name.toLowerCase() === fn &&
+                tempRetained[rIdx].size.toLowerCase() === fsz
+              ) {
+                matchedIdx = rIdx;
+                break;
+              }
+            }
+
+            if (matchedIdx >= 0) {
+              tempRetained.splice(matchedIdx, 1);
+            } else {
+              const origNames = (r.newItems || '').split(',').map((s: string) => s.trim());
+              const origSizes = (r.newSizes || '').split(',').map((s: string) => s.trim());
+              const matchName = origNames.find((n: string) => n.toLowerCase() === fn) || fn;
+              const matchSize = origSizes.find((s: string) => s.toLowerCase() === fsz) || fsz.toUpperCase();
+              extraIssued.push({ name: matchName, size: matchSize, unitPrice: fprice });
+            }
+          });
+
+          if (extraIssued.length > issuedItemsArr.length) {
+            issuedItemsArr = extraIssued;
+          }
+        }
+
+        if (issuedItemsArr.length > 0) {
           const newItemsMap = new Map<string, SelectedNewItem>();
 
-          names.forEach((n: string, i: number) => {
-            const size = sizes[i] || 'M';
-            const key  = `${n.toLowerCase()}:::${size.toLowerCase()}`;
+          issuedItemsArr.forEach((item) => {
+            const key = `${item.name.toLowerCase()}:::${item.size.toLowerCase()}`;
 
-            // Find exact unit price of this item from newFinalItemsPricesEach
-            let itemPrice = 0;
-            const finalIdx = finalNamesArr.findIndex(
-              (fn: string, k: number) => fn === n.toLowerCase() && (finalSizesArr[k] || '') === size.toLowerCase()
-            );
-
-            if (finalIdx >= 0 && finalPricesArr[finalIdx] > 0) {
-              itemPrice = finalPricesArr[finalIdx];
-            } else if (catalogPrices[n.toLowerCase()]) {
-              itemPrice = catalogPrices[n.toLowerCase()];
+            let itemPrice = item.unitPrice;
+            if (!itemPrice) {
+              const finalIdx = finalNamesArr.findIndex(
+                (fn: string, k: number) => fn === item.name.toLowerCase() && (finalSizesArr[k] || '') === item.size.toLowerCase()
+              );
+              if (finalIdx >= 0 && finalPricesArr[finalIdx] > 0) {
+                itemPrice = finalPricesArr[finalIdx];
+              } else if (catalogPrices[item.name.toLowerCase()]) {
+                itemPrice = catalogPrices[item.name.toLowerCase()];
+              }
             }
 
             if (newItemsMap.has(key)) {
               const existing = newItemsMap.get(key)!;
               existing.qty += 1;
+              if (itemPrice > 0 && (!existing.unitPrice || existing.unitPrice === 0)) {
+                existing.unitPrice = itemPrice;
+              }
             } else {
               newItemsMap.set(key, {
-                itemName:  n,
-                size:      size,
+                itemName:  item.name,
+                size:      item.size,
                 qty:       1,
                 unitPrice: itemPrice,
               });
@@ -285,7 +393,69 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
     setSelectedNewItems(selectedNewItems.filter((i) => !(i.itemName === itemName && i.size === size)));
   }
 
-  const newItemsTotalAmount = selectedNewItems.reduce((sum, item) => sum + (item.unitPrice * item.qty), 0);
+  // 1. Calculate retained items from immutable original purchase record
+  const origItemNamesArr = record?.lastItems
+    ? record.lastItems.split(',').map((s) => s.trim()).filter(Boolean)
+    : (saleDetails?.itemNames ? saleDetails.itemNames.split(',').map((s) => s.trim()).filter(Boolean) : []);
+
+  const origSizesArr = record?.lastSizes
+    ? record.lastSizes.split(',').map((s) => s.trim()).filter(Boolean)
+    : (saleDetails?.sizes ? saleDetails.sizes.split(',').map((s) => s.trim()).filter(Boolean) : []);
+
+  const originalBasket = origItemNamesArr.map((name, idx) => ({
+    name,
+    size: origSizesArr[idx] || 'M',
+    originalIdx: idx,
+  }));
+
+  // Filter out items selected for replacement
+  const retainedBasket = originalBasket.filter((item) => !selectedOldIndices.includes(item.originalIdx));
+
+  // Combine retained items + new replacement items into new final basket
+  const finalOrderBasketLines: { name: string; size: string; qty: number; unitPrice: number; isReplacement: boolean }[] = [];
+
+  retainedBasket.forEach((item) => {
+    const catalogPrice = catalogPrices[item.name.toLowerCase()] || 0;
+    const existing = finalOrderBasketLines.find((f) => !f.isReplacement && f.name.toLowerCase() === item.name.toLowerCase() && f.size === item.size);
+    if (existing) {
+      existing.qty += 1;
+    } else {
+      finalOrderBasketLines.push({
+        name: item.name,
+        size: item.size,
+        qty: 1,
+        unitPrice: catalogPrice,
+        isReplacement: false,
+      });
+    }
+  });
+
+  selectedNewItems.forEach((item) => {
+    finalOrderBasketLines.push({
+      name: item.itemName,
+      size: item.size,
+      qty: item.qty,
+      unitPrice: item.unitPrice,
+      isReplacement: true,
+    });
+  });
+
+  const finalBasketSubtotal = finalOrderBasketLines.reduce((sum, line) => sum + (line.unitPrice * line.qty), 0);
+
+  // Pricing calculations
+  const effectiveDiscount = replaceDiscountToggle
+    ? (parseFloat(newDiscountVal || '0') || 0)
+    : (saleDetails?.discount || 0);
+
+  const effectiveDeliveryCharge = replaceDeliveryToggle
+    ? (parseFloat(newDeliveryChargeVal || '0') || 0)
+    : (saleDetails?.deliveryChargeToggle ? (saleDetails?.deliveryChargeAmount || 0) : 0);
+
+  const grandTotalCalc = calculateSaleTotalAmount({
+    items: finalBasketSubtotal,
+    discount: effectiveDiscount,
+    deliveryCharge: effectiveDeliveryCharge,
+  });
 
   function validateFormFields(): string | null {
     const oldItems = getSelectedOldItems();
@@ -332,21 +502,25 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
         method:  'PUT',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
-          version:            record.version,
-          oldItemsToReplace:  getSelectedOldItems(),
-          newItemsChosen:     selectedNewItems,
+          version:                     record.version,
+          oldItemsToReplace:           getSelectedOldItems(),
+          newItemsChosen:              selectedNewItems,
           disposition,
-          restockDestination: disposition === 'Returned to Inventory' ? restockDestination : undefined,
+          restockDestination:          disposition === 'Returned to Inventory' ? restockDestination : undefined,
           newStockSource,
-          invoiceStatus:      statusVal,
-          action:             'draft',
+          invoiceStatus:               statusVal,
+          newDeliveryCharge:           replaceDeliveryToggle ? newDeliveryChargeVal : undefined,
+          newDiscount:                 replaceDiscountToggle ? newDiscountVal : undefined,
+          replaceDeliveryChargeToggle: replaceDeliveryToggle,
+          replaceDiscountToggle:       replaceDiscountToggle,
+          action:                      'draft',
         }),
       });
 
       const data = await res.json();
       if (!res.ok) { setError(parseApiError(data)); return; }
 
-      setSuccess('Replacement progress saved to replacement sheet successfully.');
+      setSuccess('Replacement progress & updated totals saved successfully.');
       loadDetails();
     } catch {
       setError({ message: "Couldn't save replacement draft." });
@@ -372,21 +546,24 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          version: record.version,
-          oldItemsToReplace: getSelectedOldItems(),
-          newItemsChosen: selectedNewItems,
+          version:                     record.version,
+          oldItemsToReplace:           getSelectedOldItems(),
+          newItemsChosen:              selectedNewItems,
           disposition,
-          restockDestination: disposition === 'Returned to Inventory' ? restockDestination : undefined,
+          restockDestination:          disposition === 'Returned to Inventory' ? restockDestination : undefined,
           newStockSource,
-          invoiceStatus: 'Satisfied / Completed Order',
-          action: 'complete',
+          invoiceStatus:               'Satisfied / Completed Order',
+          newDeliveryCharge:           replaceDeliveryToggle ? newDeliveryChargeVal : undefined,
+          newDiscount:                 replaceDiscountToggle ? newDiscountVal : undefined,
+          replaceDeliveryChargeToggle: replaceDeliveryToggle,
+          replaceDiscountToggle:       replaceDiscountToggle,
+          action:                      'complete',
         }),
       });
 
       const data = await res.json();
       if (!res.ok) { setError(parseApiError(data)); return; }
 
-      // Redirect back to replacement directory
       router.push('/dashboard/replacement');
     } catch {
       setError({ message: "Couldn't complete replacement." });
@@ -415,7 +592,7 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
   }
 
   return (
-    <div style={{ maxWidth: 860, margin: '0 auto' }}>
+    <div style={{ maxWidth: 880, margin: '0 auto', paddingBottom: 40 }}>
       {/* Top Header & Action Bar */}
       <div style={{ marginBottom: 16 }}>
         <Link href="/dashboard/replacement" style={{ fontSize: 13, textDecoration: 'none', color: 'var(--color-brand-primary)', fontWeight: 600 }}>
@@ -425,7 +602,9 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
 
       <div className="page-header" style={{ alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 className="page-title">Replacement Handling: {invoiceNumber}</h1>
+          <h1 className="page-title" style={{ color: 'var(--color-brand-primary)' }}>
+            Replacement Handling: {invoiceNumber}
+          </h1>
           <div style={{ fontSize: 13, color: 'var(--color-ink-muted)', marginTop: 4 }}>
             Status: <span className="badge badge-warning">{record?.invoiceStatus || statusVal}</span>
           </div>
@@ -446,7 +625,7 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
             onClick={handleSaveChanges}
             disabled={saving || completing}
           >
-            {saving ? <LoadingGecko size="inline" label="Saving…" /> : 'Save Progress'}
+            {saving ? <LoadingGecko size="inline" label="Saving…" /> : '💾 Save Progress'}
           </button>
           <button
             type="button"
@@ -463,23 +642,23 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
       {error && <ErrorMessage message={error.message} variant="error" onDismiss={() => setError(null)} />}
       {success && <ErrorMessage message={success} variant="success" onDismiss={() => setSuccess(null)} />}
 
-      {/* Original Sale Context Card (PRESERVED UNCHANGED) */}
+      {/* Original Sale Context Card */}
       {saleDetails && (
-        <div className="card" style={{ background: 'rgba(43,98,198,0.06)', borderRadius: 10, padding: 16, marginBottom: 20 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, textTransform: 'uppercase', color: 'var(--color-brand-primary)', marginBottom: 8 }}>
-            Original Order Details ({saleDetails.invoiceNumber}) — Preserved Original Purchase
+        <div className="card" style={{ background: 'rgba(43,98,198,0.05)', borderRadius: 10, padding: 16, marginBottom: 20 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, textTransform: 'uppercase', color: 'var(--color-brand-primary)', marginBottom: 8, letterSpacing: '0.04em' }}>
+            Original Order Context ({saleDetails.invoiceNumber})
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, fontSize: 13 }}>
             <div><strong>Customer:</strong> {saleDetails.customerName}</div>
-            <div><strong>Original Total:</strong> ₹{saleDetails.totalAmount}</div>
-            <div><strong>Original Purchased Items:</strong> {saleDetails.itemNames} ({saleDetails.sizes})</div>
+            <div><strong>Original Total:</strong> <span className="tabular-nums">₹{saleDetails.totalAmount}</span></div>
+            <div><strong>Original Items:</strong> {saleDetails.itemNames} ({saleDetails.sizes})</div>
             <div><strong>Order Status:</strong> <span className="badge badge-neutral">{saleDetails.saleStatus}</span></div>
           </div>
         </div>
       )}
 
       {/* Replacement Edit Form Container */}
-      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 20, marginBottom: 24 }}>
         {/* Step 1: Select Old Items to Exchange */}
         <div className="form-group">
           <label className="form-label" style={{ fontWeight: 700, fontSize: 14 }}>
@@ -508,7 +687,7 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
           )}
         </div>
 
-        {/* Step 2: Select New Replacement Items with Quantity & Unit Price */}
+        {/* Step 2: Select New Replacement Items */}
         <div className="form-group">
           <label className="form-label" style={{ fontWeight: 700, fontSize: 14 }}>
             Step 2: Select New Replacement Final Item(s) & Quantities *
@@ -548,7 +727,6 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                    {/* Quantity Selector */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>Qty:</span>
                       <button
@@ -570,7 +748,6 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
                       </button>
                     </div>
 
-                    {/* Price Each */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>Price each: ₹</span>
                       <input
@@ -582,8 +759,8 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
                       />
                     </div>
 
-                    <div style={{ fontWeight: 700, fontSize: 13, minWidth: 80, textAlign: 'right' }}>
-                      Subtotal: ₹{item.unitPrice * item.qty}
+                    <div style={{ fontWeight: 700, fontSize: 13, minWidth: 80, textAlign: 'right' }} className="tabular-nums">
+                      Subtotal: ₹{(item.unitPrice * item.qty).toLocaleString('en-IN')}
                     </div>
 
                     <button
@@ -596,16 +773,12 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
                   </div>
                 </div>
               ))}
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 8, borderTop: '1px dashed var(--color-border)', fontSize: 14, fontWeight: 700, color: 'var(--color-brand-primary)' }}>
-                New Replacement Total Amount: ₹{newItemsTotalAmount}
-              </div>
             </div>
           )}
         </div>
 
         {/* Step 3: New Stock Source Location */}
-        <div className="form-group" style={{ background: 'rgba(43,98,198,0.06)', padding: 14, borderRadius: 8, border: '1px solid var(--color-border)' }}>
+        <div className="form-group" style={{ background: 'rgba(43,98,198,0.05)', padding: 14, borderRadius: 8, border: '1px solid var(--color-border)' }}>
           <label className="form-label" style={{ fontWeight: 700, color: 'var(--color-brand-primary)' }}>
             Step 3: New Stock Dispatch Location (Source) *
           </label>
@@ -620,7 +793,6 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
             ))}
           </select>
 
-          {/* Dynamic Availability Indicator */}
           {selectedNewItems.length > 0 && (
             <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px dashed var(--color-border)' }}>
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-ink-muted)', marginBottom: 6 }}>
@@ -654,7 +826,7 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
         </div>
 
         {/* Step 4: Mandatory Old Item Disposition */}
-        <div className="form-group" style={{ background: 'rgba(255,152,0,0.08)', padding: 14, borderRadius: 8 }}>
+        <div className="form-group" style={{ background: 'rgba(255,152,0,0.06)', padding: 14, borderRadius: 8, border: '1px solid rgba(255,152,0,0.25)' }}>
           <label className="form-label" style={{ fontWeight: 700, color: '#e65100' }}>
             Step 4: Mandatory Old Item Disposition *
           </label>
@@ -667,7 +839,7 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
                 checked={disposition === 'Returned to Inventory'}
                 onChange={() => setDisposition('Returned to Inventory')}
               />
-              Return to Inventory
+              Return to Inventory / Warehouse Stock
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
               <input
@@ -677,7 +849,7 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
                 checked={disposition === 'Sent to Damaged Products'}
                 onChange={() => setDisposition('Sent to Damaged Products')}
               />
-              Send to Damaged Products
+              Send to Damaged Products Log
             </label>
           </div>
 
@@ -698,7 +870,70 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
           )}
         </div>
 
-        {/* Step 5: Status Progression */}
+        {/* Step 5: Delivery Charge & Discount Customization */}
+        <div className="form-group" style={{ background: 'var(--color-surface)', padding: 16, borderRadius: 8, border: '1px solid var(--color-border)' }}>
+          <label className="form-label" style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>
+            Step 5: Delivery Charge & Discount Options (Optional)
+          </label>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* Delivery Charge Toggle */}
+            <div style={{ border: '1px solid var(--color-border)', borderRadius: 6, padding: 12, background: '#fff' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+                <input
+                  type="checkbox"
+                  checked={replaceDeliveryToggle}
+                  onChange={(e) => setReplaceDeliveryToggle(e.target.checked)}
+                />
+                <span>Do you want to update or replace the current delivery charge?</span>
+              </label>
+
+              {replaceDeliveryToggle && (
+                <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, maxWidth: 280 }}>
+                  <span style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>New Delivery Charge: ₹</span>
+                  <input
+                    type="number"
+                    className="form-input"
+                    value={newDeliveryChargeVal}
+                    onChange={(e) => setNewDeliveryChargeVal(e.target.value)}
+                    min="0"
+                    step="0.01"
+                    placeholder="e.g. 50"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Discount Toggle */}
+            <div style={{ border: '1px solid var(--color-border)', borderRadius: 6, padding: 12, background: '#fff' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+                <input
+                  type="checkbox"
+                  checked={replaceDiscountToggle}
+                  onChange={(e) => setReplaceDiscountToggle(e.target.checked)}
+                />
+                <span>Do you want to update or apply a discount?</span>
+              </label>
+
+              {replaceDiscountToggle && (
+                <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, maxWidth: 280 }}>
+                  <span style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>New Discount Amount: ₹</span>
+                  <input
+                    type="number"
+                    className="form-input"
+                    value={newDiscountVal}
+                    onChange={(e) => setNewDiscountVal(e.target.value)}
+                    min="0"
+                    step="0.01"
+                    placeholder="e.g. 100"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Step 6: Status Progression */}
         <div className="form-group">
           <label className="form-label" style={{ fontWeight: 700 }}>
             Status Progression
@@ -709,6 +944,114 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
             <option value="Replacement Received">Replacement Received</option>
             <option value="Satisfied / Completed Order">Satisfied / Completed Order (Unlocks Sale)</option>
           </select>
+        </div>
+      </div>
+
+      {/* ── BOTTOM SUMMARY SECTION (DESIGN.md Styled Breakdown Table & Totals) ─────────── */}
+      <div className="card" style={{ background: 'var(--color-surface)', borderRadius: 10, border: '1.5px solid var(--color-border)' }}>
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, color: 'var(--color-ink)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span>📊 New Final Order Summary Breakdown</span>
+        </h2>
+        <p style={{ fontSize: 12.5, color: 'var(--color-ink-muted)', marginBottom: 16 }}>
+          Live summary table showing the resulting final order basket (retained items + new replacements), item pricing, discounts, delivery charges, and updated total amount.
+        </p>
+
+        {/* Breakdown Table */}
+        <div style={{ overflowX: 'auto', marginBottom: 16 }}>
+          <table className="table" style={{ width: '100%', fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: 'rgba(43,98,198,0.04)' }}>
+                <th style={{ textAlign: 'left' }}>Item Name</th>
+                <th style={{ textAlign: 'center' }}>Size</th>
+                <th style={{ textAlign: 'center' }}>Quantity</th>
+                <th style={{ textAlign: 'right' }}>Price per Item</th>
+                <th style={{ textAlign: 'right' }}>Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>
+              {finalOrderBasketLines.length === 0 ? (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: 'center', color: 'var(--color-ink-muted)', padding: 20 }}>
+                    No items selected in final order.
+                  </td>
+                </tr>
+              ) : (
+                finalOrderBasketLines.map((line, idx) => (
+                  <tr key={idx}>
+                    <td>
+                      <span style={{ fontWeight: 600 }}>{line.name}</span>
+                      {line.isReplacement && (
+                        <span className="badge badge-info" style={{ marginLeft: 8, fontSize: 10 }}>New Replacement</span>
+                      )}
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <span className="badge badge-neutral" style={{ fontSize: 11 }}>{line.size}</span>
+                    </td>
+                    <td style={{ textAlign: 'center', fontWeight: 600 }}>{line.qty} piece(s)</td>
+                    <td style={{ textAlign: 'right' }} className="tabular-nums">
+                      ₹{line.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td style={{ textAlign: 'right', fontWeight: 700 }} className="tabular-nums">
+                      ₹{(line.qty * line.unitPrice).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Totals Breakdown Block */}
+        <div style={{
+          borderTop: '1.5px solid var(--color-border)',
+          paddingTop: 12,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          gap: 6,
+          fontSize: 13,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', width: 300, color: 'var(--color-ink-muted)' }}>
+            <span>Basket Subtotal:</span>
+            <span className="tabular-nums" style={{ fontWeight: 600, color: 'var(--color-ink)' }}>
+              ₹{finalBasketSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            </span>
+          </div>
+
+          {effectiveDiscount > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', width: 300, color: 'var(--color-error)' }}>
+              <span>Discount Applied{replaceDiscountToggle ? ' (Updated)' : ''}:</span>
+              <span className="tabular-nums" style={{ fontWeight: 600 }}>
+                −₹{effectiveDiscount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+          )}
+
+          {effectiveDeliveryCharge > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', width: 300, color: 'var(--color-ink-muted)' }}>
+              <span>Delivery Charge{replaceDeliveryToggle ? ' (Updated)' : ''}:</span>
+              <span className="tabular-nums" style={{ fontWeight: 600, color: 'var(--color-ink)' }}>
+                +₹{effectiveDeliveryCharge.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+          )}
+
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            width: 300,
+            borderTop: '1.5px solid var(--color-border)',
+            paddingTop: 8,
+            marginTop: 4,
+            fontSize: 16,
+            fontWeight: 700,
+            color: 'var(--color-brand-primary)',
+          }}>
+            <span>New Grand Total Amount:</span>
+            <span className="tabular-nums">
+              ₹{grandTotalCalc.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            </span>
+          </div>
         </div>
       </div>
     </div>

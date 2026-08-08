@@ -4,9 +4,7 @@
  * POST /api/setup/register-sheet
  * Setup Wizard Step 2: register module Google Sheet tabs.
  *
- * Actions:
- *  - 'auto-create-all': Takes a pasted Google Spreadsheet ID / URL, creates all 12 module tabs with pre-formatted headers, and registers them automatically.
- *  - 'link': Links an individual module Spreadsheet ID + Tab Name.
+ * Updated with Part 4 extended Return/Refund Management sheet schema.
  */
 
 import { requireSuperadmin } from '@/lib/auth';
@@ -15,14 +13,14 @@ import { setModuleConfig } from '@/lib/google/sheetConfig';
 
 export const dynamic = 'force-dynamic';
 
-/** Headers for each module sheet, matching spec Section 3.x and Part 2 & 3. */
+/** Headers for each module sheet, matching spec Section 3.x and Parts 2, 3 & 4. */
 const MODULE_HEADERS: Record<string, string[]> = {
   items:             ['S.No', 'Item Name', 'Item Type', 'Price of Item', 'Available Sizes', 'Created By', 'Created At', 'Updated By', 'Updated At', 'Current Status'],
   inventory:         ['S.No', 'Item Name', 'Size', 'Total Quantity Available', 'Added By (Admin)', 'Updated At', 'Updated By (Admin)', 'Created At'],
   warehouse:         ['S.No', 'Warehouse Location', 'Handler Name', 'Item Name', 'Size', 'Quantity', 'Created By', 'Created At', 'Updated By', 'Updated At'],
   sales:             ['S.No', 'Invoice Number', 'Sale Status', 'Customer Name', 'Customer Phone Number', 'Customer Address', 'Total Number of Items Purchased', 'Item(s) Name(s)', 'Size(s) Chosen', 'Item Prices', 'Total Amount', 'Payment Status', 'Mode of Payment', 'Transaction ID', 'Created At', 'Created By (Admin)', 'Updated At', 'Updated By', 'Version', 'Delivery Status', 'Delivery Charge Toggle', 'Delivery Charge Amount', 'Fulfilment Request Status', 'Fulfilment Source', 'Sale Closed By', 'Discount', 'Customer Email'],
-  replacement:       ['S.No', 'Invoice Number', 'Total Number of Items Purchased', 'Last Purchased Item(s)', 'Last Purchased Item(s) Size', 'New Item(s)', 'New Item(s) Size', 'Invoice Status', 'Disposition of Old Items', 'Restock Destination', 'Removed Item from Last Purchase', 'Sizes of Removed Item from Last Purchase', 'Number of Removed Item from Last Purchase', 'New Final Items Selected', 'New Final Items Sizes', 'Number of New Final Items', 'New Final Items Prices Each', 'New Final Items Total Amount', 'New Stock Source', 'Created At', 'Created By', 'Updated At', 'Updated By', 'Version'],
-  return_refund:     ['S.No', 'Invoice Number', 'Item Verification Status', 'Refund Status', 'Refund Amount', 'Refund Completed Date & Time', 'Transaction ID', 'Mode of Refund', 'Disposition of Returned Items', 'Restock Destination', 'Created At', 'Created By', 'Updated At', 'Updated By', 'Version'],
+  replacement:       ['S.No', 'Invoice Number', 'Total Number of Items Purchased', 'Last Purchased Item(s)', 'Last Purchased Item(s) Size', 'New Item(s)', 'New Item(s) Size', 'Invoice Status', 'Disposition of Old Items', 'Restock Destination', 'Removed Item from Last Purchase', 'Sizes of Removed Item from Last Purchase', 'Number of Removed Item from Last Purchase', 'New Final Items Selected', 'New Final Items Sizes', 'Number of New Final Items', 'New Final Items Prices Each', 'New Final Items Total Amount', 'New Stock Source', 'Created At', 'Created By', 'Updated At', 'Updated By', 'Version', 'New Delivery Charge', 'New Discount'],
+  return_refund:     ['S.No', 'Invoice Number', 'Item Verification Status', 'Refund Status', 'Refund Amount', 'Refund Completed Date & Time', 'Transaction ID', 'Mode of Refund', 'Disposition of Returned Items', 'Restock Destination', 'Returned Item(s)', 'Returned Item Size(s)', 'Returned Item Quantity(ies)', 'Price Charged (Returned Items)', 'New Final Items Selected', 'New Final Items Sizes', 'Number of New Final Items', 'New Final Items Prices Each', 'New Discount Applied', 'New Final Items Total Amount', 'Created At', 'Created By', 'Updated At', 'Updated By', 'Version'],
   admin_info:        ['S.No', 'Admin Name', 'Phone Number', 'Email ID', 'Notifications', 'Password Hash', 'Created At', 'Created By', 'Updated At', 'Updated By'],
   keep_notes:        ['S.No', 'Note Content', 'Created By (Admin)', 'Created At', 'Updated By', 'Updated At'],
   activity_log:      ['S.No', 'Admin Name', 'Action', 'Module', 'Module Key', 'Record ID', 'Timestamp', 'Message'],
@@ -61,7 +59,6 @@ const MODULE_TAB_NAMES: Record<string, string> = {
   customer_info:     'Customer Information',
 };
 
-/** Extract clean Spreadsheet ID if user pastes full URL */
 function extractSpreadsheetId(input: string): string {
   const trimmed = (input || '').trim();
   const match = trimmed.match(/\/d\/([a-zA-Z0-9-_]+)/);
@@ -84,7 +81,6 @@ export async function POST(request: Request) {
     const sheets = await getSheetsClient();
     const drive  = await getDriveClient();
 
-    // ── Batch Auto-Setup Mode ───────────────────────────────────────────────
     if (action === 'auto-create-all') {
       const targetId = extractSpreadsheetId(rawId || masterSpreadsheetId || '');
 
@@ -98,7 +94,6 @@ export async function POST(request: Request) {
         );
       }
 
-      // 1. Verify access to target spreadsheet
       let meta;
       try {
         meta = await sheets.spreadsheets.get({ spreadsheetId: targetId });
@@ -113,7 +108,6 @@ export async function POST(request: Request) {
         );
       }
 
-      // 2. Grant Editor permission if user provided an email
       if (adminEmail && adminEmail.trim()) {
         try {
           await drive.permissions.create({
@@ -133,7 +127,6 @@ export async function POST(request: Request) {
       const existingTabs = (meta.data.sheets ?? []).map((s) => s.properties?.title).filter(Boolean);
       const moduleKeys = Object.keys(MODULE_HEADERS);
 
-      // 3. Add missing tabs in batch
       const requests = [];
       for (const key of moduleKeys) {
         const tabName = MODULE_TAB_NAMES[key] ?? key;
@@ -149,7 +142,6 @@ export async function POST(request: Request) {
         });
       }
 
-      // 4. Write header rows & register each module in SheetConfig
       const results = [];
       for (const key of moduleKeys) {
         const tabName = MODULE_TAB_NAMES[key] ?? key;
@@ -183,7 +175,6 @@ export async function POST(request: Request) {
       });
     }
 
-    // ── Single Module Action ────────────────────────────────────────────────
     if (action === 'link') {
       if (!moduleKey || !MODULE_HEADERS[moduleKey]) {
         return Response.json(
@@ -202,7 +193,6 @@ export async function POST(request: Request) {
         );
       }
 
-      // Test-read to validate
       try {
         await sheets.spreadsheets.values.get({
           spreadsheetId: targetId,
@@ -212,7 +202,7 @@ export async function POST(request: Request) {
         return Response.json(
           {
             error: `Can't find that spreadsheet or tab.`,
-            detail: `${e?.message || 'Check ID and tab name'}. Make sure the service account (ficcado-sheets-service@ficcado-inventory-app.iam.gserviceaccount.com) has Editor access.`,
+            detail: `${e?.message || 'Check ID and tab name'}. Make sure the service account has Editor access.`,
           },
           { status: 422 }
         );

@@ -2,32 +2,17 @@
  * app/api/return-refund/route.ts
  * GET  /api/return-refund — list all return/refund records
  * POST /api/return-refund — create a new return/refund record
+ *
+ * Updated with header mapping lookups for position-independent safety and Part 4 schema compatibility.
  */
 
 import { requireAuth } from '@/lib/auth';
 import { readAllRows, appendRows } from '@/lib/google/moduleSheet';
+import { buildHeaderMap, getCellByHeader, formatRowFromHeaderMap } from '@/lib/google/headerUtils';
 import { validate, ReturnRefundSchema } from '@/lib/validation';
 import { logActivity } from '@/lib/activityLogger';
 
 export const dynamic = 'force-dynamic';
-
-const COL = {
-  sno:                 0,
-  invoiceNumber:       1,
-  verificationStatus:  2,
-  refundStatus:        3,
-  refundAmount:        4,
-  refundCompletedAt:   5,
-  transactionId:       6,
-  modeOfRefund:        7,
-  disposition:         8,
-  restockDestination:  9,
-  createdAt:           10,
-  createdBy:           11,
-  updatedAt:           12,
-  updatedBy:           13,
-  version:             14,
-};
 
 export async function GET() {
   try { await requireAuth(); }
@@ -35,23 +20,37 @@ export async function GET() {
 
   try {
     const rows = await readAllRows('return_refund');
+    if (rows.length === 0) return Response.json({ records: [] });
+
+    const headerMap = buildHeaderMap(rows[0]);
     const records = rows.slice(1).map((row, i) => ({
       rowIndex:           i + 2,
-      invoiceNumber:      row[COL.invoiceNumber]      ?? '',
-      verificationStatus: row[COL.verificationStatus] ?? '',
-      refundStatus:       row[COL.refundStatus]       ?? '',
-      refundAmount:       row[COL.refundAmount]       ?? '',
-      refundCompletedAt:  row[COL.refundCompletedAt]  ?? '',
-      transactionId:      row[COL.transactionId]      ?? '',
-      modeOfRefund:       row[COL.modeOfRefund]       ?? '',
-      disposition:        row[COL.disposition]        ?? '',
-      restockDestination: row[COL.restockDestination] ?? '',
-      createdAt:          row[COL.createdAt]           ?? '',
-      createdBy:          row[COL.createdBy]           ?? '',
-      updatedAt:          row[COL.updatedAt]           ?? '',
-      updatedBy:          row[COL.updatedBy]           ?? '',
-      version:            row[COL.version]             ?? '1',
+      invoiceNumber:      getCellByHeader(row, headerMap, 'Invoice Number'),
+      verificationStatus: getCellByHeader(row, headerMap, 'Item Verification Status'),
+      refundStatus:       getCellByHeader(row, headerMap, 'Refund Status'),
+      refundAmount:       getCellByHeader(row, headerMap, 'Refund Amount'),
+      refundCompletedAt:  getCellByHeader(row, headerMap, 'Refund Completed Date & Time'),
+      transactionId:      getCellByHeader(row, headerMap, 'Transaction ID'),
+      modeOfRefund:       getCellByHeader(row, headerMap, 'Mode of Refund'),
+      disposition:        getCellByHeader(row, headerMap, 'Disposition of Returned Items'),
+      restockDestination: getCellByHeader(row, headerMap, 'Restock Destination'),
+      returnedItems:      getCellByHeader(row, headerMap, 'Returned Item(s)'),
+      returnedSizes:      getCellByHeader(row, headerMap, 'Returned Item Size(s)'),
+      returnedQty:        getCellByHeader(row, headerMap, 'Returned Item Quantity(ies)'),
+      priceCharged:       getCellByHeader(row, headerMap, 'Price Charged (Returned Items)'),
+      newFinalItems:      getCellByHeader(row, headerMap, 'New Final Items Selected'),
+      newFinalSizes:      getCellByHeader(row, headerMap, 'New Final Items Sizes'),
+      newFinalQty:        getCellByHeader(row, headerMap, 'Number of New Final Items'),
+      newFinalPrices:     getCellByHeader(row, headerMap, 'New Final Items Prices Each'),
+      newDiscountApplied: getCellByHeader(row, headerMap, 'New Discount Applied'),
+      newFinalTotalAmt:   getCellByHeader(row, headerMap, 'New Final Items Total Amount'),
+      createdAt:          getCellByHeader(row, headerMap, 'Created At'),
+      createdBy:          getCellByHeader(row, headerMap, 'Created By'),
+      updatedAt:          getCellByHeader(row, headerMap, 'Updated At'),
+      updatedBy:          getCellByHeader(row, headerMap, 'Updated By'),
+      version:            getCellByHeader(row, headerMap, 'Version', '1'),
     })).filter((r) => r.invoiceNumber);
+
     return Response.json({ records });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -73,14 +72,27 @@ export async function POST(request: Request) {
             refundCompletedAt, transactionId, modeOfRefund } = data!;
 
     const rows = await readAllRows('return_refund');
+    const headerRow = rows[0] || [];
     const sno = String(rows.length);
     const now = new Date().toISOString();
 
-    await appendRows('return_refund', [[
-      sno, invoiceNumber, itemVerificationStatus, refundStatus,
-      String(refundAmount), refundCompletedAt ?? '', transactionId ?? '',
-      modeOfRefund ?? '', '', '', now, admin.name, now, admin.name, '1',
-    ]]);
+    const retObj: Record<string, string> = {
+      'S.No': sno,
+      'Invoice Number': invoiceNumber,
+      'Item Verification Status': itemVerificationStatus || 'Not Received — In Transit',
+      'Refund Status': refundStatus || 'Refund Pending',
+      'Refund Amount': String(refundAmount),
+      'Refund Completed Date & Time': refundCompletedAt ?? '',
+      'Transaction ID': transactionId ?? '',
+      'Mode of Refund': modeOfRefund ?? 'Cash',
+      'Created At': now,
+      'Created By': admin.name,
+      'Updated At': now,
+      'Updated By': admin.name,
+      'Version': '1',
+    };
+
+    await appendRows('return_refund', [formatRowFromHeaderMap(retObj, headerRow)]);
 
     await logActivity({ adminName: admin.name, action: 'created', module: 'Return/Refund Management', moduleKey: 'return_refund', recordId: invoiceNumber });
     return Response.json({ success: true, message: `Return/Refund for ${invoiceNumber} created.` }, { status: 201 });
