@@ -9,6 +9,7 @@ import { readAllRows, appendRows } from '@/lib/google/moduleSheet';
 import { buildHeaderMap, getCellByHeader, formatRowFromHeaderMap } from '@/lib/google/headerUtils';
 import { validate, ItemSchema } from '@/lib/validation';
 import { logActivity } from '@/lib/activityLogger';
+import { recordSalesLog, formatPrice } from '@/lib/salesLogger';
 
 export const dynamic = 'force-dynamic';
 
@@ -82,6 +83,16 @@ export async function POST(request: Request) {
     await appendRows('items', [formatRowFromHeaderMap(itemObj, headerRow)]);
 
     await logActivity({ adminName: admin.name, action: 'created', module: 'Items Management', moduleKey: 'items', recordId: itemName });
+
+    const itemLogMsg = `Admin ${admin.name} created a new item ${itemName}, type ${itemType}, price ${formatPrice(priceOfItem)}, available sizes ${sizesStr}. Status set to ${currentStatus ?? 'In Stock'}. Created at ${now}.`;
+
+    await recordSalesLog({
+      module: 'Items',
+      operation: 'Create',
+      message: itemLogMsg,
+      adminName: admin.name,
+    });
+
     return Response.json({ success: true, message: `Item '${itemName}' created.` }, { status: 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

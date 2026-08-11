@@ -10,6 +10,7 @@ import { readAllRows, appendRows } from '@/lib/google/moduleSheet';
 import { validate, DamagedProductSchema } from '@/lib/validation';
 import { logActivity } from '@/lib/activityLogger';
 import { recordInventoryHistory } from '@/lib/inventoryHistory';
+import { recordSalesLog, formatItemListWithSummary } from '@/lib/salesLogger';
 
 export const dynamic = 'force-dynamic';
 
@@ -104,6 +105,17 @@ export async function POST(request: Request) {
       module: 'Damaged Products Management',
       moduleKey: 'damaged_products',
       recordId: itemName,
+    });
+
+    const itemSummaryText = formatItemListWithSummary([{ itemName, size, qty: quantity }], false).itemText;
+    const damagedSalesLogMsg = `Admin ${admin.name} logged damaged product(s): ${itemSummaryText}, linked to invoice ${invoiceNumber || 'N/A'} for customer ${customerName || 'N/A'}. This item arrived via direct manual entry. Notes: ${reasonNotes || 'None provided'}. Created at ${now}.`;
+
+    await recordSalesLog({
+      module: 'Damaged Products',
+      operation: 'Create',
+      relatedInvoiceNumber: invoiceNumber,
+      message: damagedSalesLogMsg,
+      adminName: admin.name,
     });
 
     return Response.json({ success: true, message: logMsg }, { status: 201 });

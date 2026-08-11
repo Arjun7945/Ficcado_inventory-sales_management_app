@@ -13,6 +13,7 @@ import { readAllRows, updateRow, deleteRow, appendRows } from '@/lib/google/modu
 import { buildHeaderMap, getCellByHeader, formatRowFromHeaderMap } from '@/lib/google/headerUtils';
 import { calculateSaleTotalAmount } from '@/lib/salesPricing';
 import { logActivity } from '@/lib/activityLogger';
+import { recordSalesLog, formatPrice, formatStockLocation, parseAndGroupCommaSeparatedItems, formatItemListWithSummary } from '@/lib/salesLogger';
 
 export const dynamic = 'force-dynamic';
 
@@ -112,6 +113,7 @@ export async function PUT(
     const actualRowIndex = foundIndex + 2;
     const row = rows[foundIndex + 1];
     const currentFulfilmentStatus = getCellByHeader(row, headerMap, 'Fulfilment Request Status', 'Normal');
+    const customerName = getCellByHeader(row, headerMap, 'Customer Name');
 
     // Handle Replace Requested action
     if (requestAction === 'replace_requested') {
@@ -140,12 +142,16 @@ export async function PUT(
       const replHeaderRow = replRows[0] || [];
       const replSno = String(replRows.length);
 
+      const itemNamesStr = getCellByHeader(row, headerMap, 'Item(s) Name(s)');
+      const itemSizesStr = getCellByHeader(row, headerMap, 'Size(s) Chosen');
+      const itemPricesStr = getCellByHeader(row, headerMap, 'Item Prices');
+
       const replObj: Record<string, string> = {
         'S.No': replSno,
         'Invoice Number': id,
         'Total Number of Items Purchased': getCellByHeader(row, headerMap, 'Total Number of Items Purchased', '1'),
-        'Last Purchased Item(s)': getCellByHeader(row, headerMap, 'Item(s) Name(s)'),
-        'Last Purchased Item(s) Size': getCellByHeader(row, headerMap, 'Size(s) Chosen'),
+        'Last Purchased Item(s)': itemNamesStr,
+        'Last Purchased Item(s) Size': itemSizesStr,
         'Invoice Status': 'Replacement Approved',
         'Created At': now,
         'Created By': admin.name,
@@ -165,6 +171,19 @@ export async function PUT(
         recordId: id,
       });
 
+      const groupedOldItems = parseAndGroupCommaSeparatedItems(itemNamesStr, itemSizesStr, itemPricesStr);
+      const { itemText: oldItemDetails } = formatItemListWithSummary(groupedOldItems, true);
+
+      const replSalesLogMsg = `Admin ${admin.name} created a replacement request for invoice ${id}, customer ${customerName}. Old item(s) selected for replacement: ${oldItemDetails}. New item(s) chosen: Pending selection, sourced from ${formatStockLocation(getCellByHeader(row, headerMap, 'Fulfilment Source'))}. Status set to Replacement Approved. Created at ${now}.`;
+
+      await recordSalesLog({
+        module: 'Replacement',
+        operation: 'Create',
+        relatedInvoiceNumber: id,
+        message: replSalesLogMsg,
+        adminName: admin.name,
+      });
+
       return Response.json({
         success: true,
         message: logMsg,
@@ -172,7 +191,7 @@ export async function PUT(
       });
     }
 
-    // Handle Return/Refund Requested action (A1 label update: Return/Refund Requested)
+    // Handle Return/Refund Requested action (A1 statuses & snapshot details)
     if (requestAction === 'refund_requested' || requestAction === 'return_refund_requested') {
       if (currentFulfilmentStatus !== 'Normal') {
         return Response.json(
@@ -185,10 +204,16 @@ export async function PUT(
       const currentVer = parseInt(getCellByHeader(row, headerMap, 'Version', '1'), 10);
       const newVersion = String(currentVer + 1);
 
+      const isSpecificReturn = body.returnType === 'specific';
+      const saleStatusVal = isSpecificReturn ? 'Return/Refund on Specific Item(s)' : 'Return/Refund on all Items';
+      const deliveryStatusVal = isSpecificReturn ? 'Specific Item(s) Returning' : 'All Items Returning Back';
+
       const sObj: Record<string, string> = {};
       rows[0].forEach((col, cIdx) => { sObj[col.trim()] = row[cIdx] ?? ''; });
 
       sObj['Fulfilment Request Status'] = 'Refund-Requested';
+      sObj['Sale Status']              = saleStatusVal;
+      sObj['Delivery Status']          = deliveryStatusVal;
       sObj['Updated At']                = now;
       sObj['Updated By']                = admin.name;
       sObj['Version']                   = newVersion;
@@ -198,6 +223,11 @@ export async function PUT(
       const retRows = await readAllRows('return_refund');
       const retHeaderRow = retRows[0] || [];
       const retSno = String(retRows.length);
+
+      const origItemsStr = getCellByHeader(row, headerMap, 'Item(s) Name(s)');
+      const origSizesStr = getCellByHeader(row, headerMap, 'Size(s) Chosen');
+      const origPricesStr = getCellByHeader(row, headerMap, 'Item Prices');
+      const reasonVal = body.reasonForReturn || 'OTHER';
 
       const retObj: Record<string, string> = {
         'S.No': retSno,
@@ -212,6 +242,20 @@ export async function PUT(
         'Updated At': now,
         'Updated By': admin.name,
         'Version': '1',
+        'Customer Name': customerName,
+        'Customer Phone Number': getCellByHeader(row, headerMap, 'Customer Phone Number'),
+        'Customer Address': getCellByHeader(row, headerMap, 'Customer Address'),
+        'Customer Email': getCellByHeader(row, headerMap, 'Customer Email'),
+        'Original Purchased Items': origItemsStr,
+        'Original Item Sizes': origSizesStr,
+        'Original Item Quantities': getCellByHeader(row, headerMap, 'Total Number of Items Purchased'),
+        'Original Item Prices': origPricesStr,
+        'Original Discount': getCellByHeader(row, headerMap, 'Discount', '0'),
+        'Original Delivery Charge': getCellByHeader(row, headerMap, 'Delivery Charge Amount', '0'),
+        'Original Total Amount': getCellByHeader(row, headerMap, 'Total Amount', '0'),
+        'Original Sale Created At': getCellByHeader(row, headerMap, 'Created At'),
+        'Original Sale Created By': getCellByHeader(row, headerMap, 'Created By (Admin)'),
+        'Reason for Return': reasonVal,
       };
 
       await appendRows('return_refund', [formatRowFromHeaderMap(retObj, retHeaderRow)]);
@@ -223,6 +267,19 @@ export async function PUT(
         module: 'Sales Management',
         moduleKey: 'sales',
         recordId: id,
+      });
+
+      const groupedOrigItems = parseAndGroupCommaSeparatedItems(origItemsStr, origSizesStr, origPricesStr);
+      const { itemText: itemsFormatted } = formatItemListWithSummary(groupedOrigItems, true);
+
+      const retSalesLogMsg = `Admin ${admin.name} created a Return/Refund request for invoice ${id}, customer ${customerName}. Reason for return: ${reasonVal}. Item(s) requested for return: ${itemsFormatted}. Created at ${now}.`;
+
+      await recordSalesLog({
+        module: 'Return/Refund',
+        operation: 'Create',
+        relatedInvoiceNumber: id,
+        message: retSalesLogMsg,
+        adminName: admin.name,
       });
 
       return Response.json({
@@ -342,6 +399,34 @@ export async function PUT(
       recordId:  id,
     });
 
+    const oldDiscount = getCellByHeader(row, headerMap, 'Discount', '0');
+    const oldDelivAmount = getCellByHeader(row, headerMap, 'Delivery Charge Amount', '0');
+    const oldTotal = getCellByHeader(row, headerMap, 'Total Amount', '0');
+    const fieldChanges: string[] = [];
+    if (String(discountVal) !== String(oldDiscount)) fieldChanges.push(`discount changed from Rs: ${oldDiscount} to Rs: ${discountVal}`);
+    if (String(delivAmount) !== String(oldDelivAmount)) fieldChanges.push(`delivery charge changed from Rs: ${oldDelivAmount} to Rs: ${delivAmount}`);
+    if (String(finalTotalAmount) !== String(oldTotal)) fieldChanges.push(`total amount changed from Rs: ${oldTotal} to Rs: ${finalTotalAmount}`);
+    if (nextSaleStatus !== getCellByHeader(row, headerMap, 'Sale Status')) fieldChanges.push(`sale status set to ${nextSaleStatus}`);
+
+    const currentItemsStr = sObj['Item(s) Name(s)'] || '';
+    const currentSizesStr = sObj['Size(s) Chosen'] || '';
+    const currentPricesStr = sObj['Item Prices'] || '';
+    const groupedCurrentItems = parseAndGroupCommaSeparatedItems(currentItemsStr, currentSizesStr, currentPricesStr);
+    const { itemText: itemsFormattedList } = formatItemListWithSummary(groupedCurrentItems, true);
+
+    const changesText = fieldChanges.length > 0 ? fieldChanges.join('; ') : 'general order details updated';
+    const sourceLoc = formatStockLocation(sObj['Fulfilment Source']);
+
+    const updateSalesLogMsg = `Admin ${admin.name} updated sale ${id} for customer ${sObj['Customer Name']}. Changes made: ${changesText}. Items on this sale remain: ${itemsFormattedList}, sourced from ${sourceLoc}. The new total amount is ${formatPrice(finalTotalAmount)}. Updated at ${now}.`;
+
+    await recordSalesLog({
+      module: 'Sales',
+      operation: 'Update',
+      relatedInvoiceNumber: id,
+      message: updateSalesLogMsg,
+      adminName: admin.name,
+    });
+
     return Response.json({
       success: true,
       version: newVersion,
@@ -389,6 +474,13 @@ export async function DELETE(
       );
     }
 
+    const origCust = getCellByHeader(row, headerMap, 'Customer Name');
+    const origCreatedAt = getCellByHeader(row, headerMap, 'Created At');
+    const origItemsStr = getCellByHeader(row, headerMap, 'Item(s) Name(s)');
+    const origSizesStr = getCellByHeader(row, headerMap, 'Size(s) Chosen');
+    const origPricesStr = getCellByHeader(row, headerMap, 'Item Prices');
+    const origTotalAmt = getCellByHeader(row, headerMap, 'Total Amount', '0');
+
     await deleteRow('sales', actualRowIndex);
 
     await logActivity({
@@ -397,6 +489,20 @@ export async function DELETE(
       module:    'Sales Management',
       moduleKey:  'sales',
       recordId:   id,
+    });
+
+    const groupedDeleteItems = parseAndGroupCommaSeparatedItems(origItemsStr, origSizesStr, origPricesStr);
+    const { itemText: itemsFormatted } = formatItemListWithSummary(groupedDeleteItems, true);
+
+    const nowStr = new Date().toISOString();
+    const deleteSalesLogMsg = `Admin ${admin.name} deleted sale ${id} for customer ${origCust} — originally created at ${origCreatedAt} with items ${itemsFormatted} totaling ${formatPrice(origTotalAmt)}. Deleted at ${nowStr}.`;
+
+    await recordSalesLog({
+      module: 'Sales',
+      operation: 'Delete',
+      relatedInvoiceNumber: id,
+      message: deleteSalesLogMsg,
+      adminName: admin.name,
     });
 
     return Response.json({ success: true, message: `Sale ${id} deleted.` });

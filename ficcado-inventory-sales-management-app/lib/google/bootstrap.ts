@@ -214,7 +214,7 @@ export async function getBootstrapSpreadsheetId(): Promise<BootstrapResult> {
           throw new Error(
             `Service Account storage quota limit: Google Service Accounts cannot create new files directly without a shared spreadsheet. ` +
             `Please create a Google Sheet in your Google Drive named '${BOOTSTRAP_SHEET_NAME}' (or any name) and share it with Editor access to: ` +
-            `ficcado-sheets-service@ficcado-inventory-app.iam.gserviceaccount.com`
+            `ficcado-crm-sheets-service@ficcado-crm-management.iam.gserviceaccount.com`
           );
         }
         throw createErr;

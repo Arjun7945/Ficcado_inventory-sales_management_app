@@ -29,27 +29,29 @@ type ModuleKey =
   | 'activity_log'
   | 'damaged_products'
   | 'inventory_history'
-  | 'customer_info';
+  | 'customer_info'
+  | 'sales_log';
 
 const MODULE_KEYS: ModuleKey[] = [
   'items', 'inventory', 'warehouse', 'sales', 'replacement',
   'return_refund', 'admin_info', 'keep_notes', 'activity_log',
-  'damaged_products', 'inventory_history', 'customer_info',
+  'damaged_products', 'inventory_history', 'customer_info', 'sales_log',
 ];
 
 const MODULE_LABELS: Record<ModuleKey, string> = {
-  items:             'Items Management',
-  inventory:         'Inventory Management',
-  warehouse:         'Warehouse Management',
-  sales:             'Sales Management',
-  replacement:       'Replacement Management',
-  return_refund:     'Return / Refund Management',
-  admin_info:        'Admin Information',
-  keep_notes:        'Keep Notes',
-  activity_log:      'Activity Log',
-  damaged_products:  'Damaged Products Management',
+  items: 'Items Management',
+  inventory: 'Inventory Management',
+  warehouse: 'Warehouse Management',
+  sales: 'Sales Management',
+  replacement: 'Replacement Management',
+  return_refund: 'Return / Refund Management',
+  admin_info: 'Admin Information',
+  keep_notes: 'Keep Notes',
+  activity_log: 'Activity Log',
+  damaged_products: 'Damaged Products Management',
   inventory_history: 'Inventory History Tracker',
-  customer_info:     'Customer Information Management',
+  customer_info: 'Customer Information Management',
+  sales_log: 'Sales Log Audit Sheet',
 };
 
 interface ModuleSheetEntry {
@@ -96,7 +98,7 @@ export default function WizardPage() {
   }
 
   function copyServiceAccountEmail() {
-    navigator.clipboard.writeText('ficcado-sheets-service@ficcado-inventory-app.iam.gserviceaccount.com');
+    navigator.clipboard.writeText('ficcado-crm-sheets-service@ficcado-crm-management.iam.gserviceaccount.com');
     setEmailCopied(true);
     setTimeout(() => setEmailCopied(false), 2500);
   }
@@ -432,7 +434,7 @@ export default function WizardPage() {
           {/* Mode 1: Automated Auto-Setup */}
           {step2Mode === 'automated' && (
             <div style={{ background: 'rgba(43,98,198,0.03)', padding: 22, borderRadius: 12, border: '1px solid rgba(43,98,198,0.12)', marginBottom: 20 }}>
-              
+
               {/* 3-Step Guide Card */}
               <div style={{
                 background: '#ffffff',
@@ -470,7 +472,7 @@ export default function WizardPage() {
                       <div style={{ fontSize: 13, color: 'var(--color-ink)', marginBottom: 8, lineHeight: 1.4 }}>
                         Click <strong>Share</strong> (top right) and add this Service Account email as <strong>Editor</strong>:
                       </div>
-                      
+
                       {/* One-Click Copy Box */}
                       <div style={{
                         display: 'flex',
@@ -490,7 +492,7 @@ export default function WizardPage() {
                           flex: 1,
                           wordBreak: 'break-all',
                         }}>
-                          ficcado-sheets-service@ficcado-inventory-app.iam.gserviceaccount.com
+                          ficcado-crm-sheets-service@ficcado-crm-management.iam.gserviceaccount.com
                         </code>
                         <button
                           type="button"
@@ -512,7 +514,7 @@ export default function WizardPage() {
                       display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1
                     }}>3</div>
                     <div style={{ fontSize: 13, color: 'var(--color-ink)', lineHeight: 1.4 }}>
-                      Copy your Spreadsheet URL or ID from the address bar, paste it below, and click <strong>Auto-Setup All 12 Tabs</strong>!
+                      Copy your Spreadsheet URL or ID from the address bar, paste it below, and click <strong>Auto-Setup All 13 Tabs</strong>!
                     </div>
                   </div>
                 </div>
@@ -566,7 +568,7 @@ export default function WizardPage() {
                 disabled={loading}
                 style={{ width: '100%', justifyContent: 'center', padding: '12px 16px', fontSize: 14 }}
               >
-                {loading ? <LoadingGecko size="inline" label="Creating 12 Tabs & Headers…" /> : '✨ Auto-Setup All 12 Tabs with Pre-Formatted Headers'}
+                {loading ? <LoadingGecko size="inline" label="Creating 13 Tabs & Headers…" /> : '✨ Auto-Setup All 13 Tabs with Pre-Formatted Headers'}
               </button>
             </div>
           )}

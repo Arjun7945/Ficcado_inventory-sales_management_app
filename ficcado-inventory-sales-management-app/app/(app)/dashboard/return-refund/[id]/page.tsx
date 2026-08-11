@@ -79,6 +79,8 @@ interface ReturnRecord {
   newFinalTotalAmt: string;
   createdAt: string;
   createdBy: string;
+  closedBy?: string;
+  reasonForReturn?: string;
   version: string;
 }
 
@@ -89,6 +91,15 @@ const VERIFICATION_OPTIONS = [
 ];
 
 const REFUND_MODES = ['Cash', 'UPI', 'Card', 'Bank Transfer'];
+
+const PRESET_REASONS = [
+  'Wrong Size / Fit',
+  'Damaged or Defective Product',
+  'Wrong Product Received',
+  "Product Doesn't Match Description / Photos",
+  'Not Satisfied with Quality',
+  'OTHER',
+];
 
 export default function ReturnRefundDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: invoiceId } = use(params);
@@ -121,6 +132,10 @@ export default function ReturnRefundDetailPage({ params }: { params: Promise<{ i
   const [showAddDiscount, setShowAddDiscount] = useState(false);
   const [newDiscountApplied, setNewDiscountApplied] = useState('0');
 
+  // Reason states (B1)
+  const [selectedReasonPreset, setSelectedReasonPreset] = useState<string>('OTHER');
+  const [customReasonText, setCustomReasonText] = useState<string>('');
+
   // Inline Validation Gate Error List
   const [missingInformation, setMissingInformation] = useState<string[]>([]);
 
@@ -131,7 +146,7 @@ export default function ReturnRefundDetailPage({ params }: { params: Promise<{ i
       const data = await res.json();
       if (!res.ok) { setError(parseApiError(data)); return; }
 
-      const rec = data.record as ReturnRecord;
+      const rec = data.record as ReturnRecord & { reasonForReturn?: string; closedBy?: string };
       const sale = data.saleDetails as SaleDetails;
       setRecord(rec);
       setSaleDetails(sale);
@@ -180,6 +195,15 @@ export default function ReturnRefundDetailPage({ params }: { params: Promise<{ i
         if (parseFloat(rec.newDiscountApplied || '0') > 0) {
           setShowAddDiscount(true);
         }
+
+        const recReason = rec.reasonForReturn || 'OTHER';
+        if (PRESET_REASONS.includes(recReason) && recReason !== 'OTHER') {
+          setSelectedReasonPreset(recReason);
+          setCustomReasonText('');
+        } else {
+          setSelectedReasonPreset('OTHER');
+          setCustomReasonText(recReason === 'OTHER' ? '' : recReason);
+        }
       }
     } catch {
       setError({ message: `Failed to load Return/Refund ticket for ${invoiceId}.` });
@@ -191,6 +215,8 @@ export default function ReturnRefundDetailPage({ params }: { params: Promise<{ i
   useEffect(() => { loadData(); }, [invoiceId]);
 
   if (loading) return <LoadingGecko size="full" label={`Loading Return/Refund ticket ${invoiceId}…`} />;
+
+  const isClosed = record?.refundStatus === 'Completed' || record?.refundStatus === 'Closed';
 
   // ── Calculation Logic ──────────────────────────────────────────────────────
   const grandTotalSaleAmount = parseFloat(saleDetails?.totalAmount || '0') || 0;
@@ -221,9 +247,6 @@ export default function ReturnRefundDetailPage({ params }: { params: Promise<{ i
   const totalReturnPieces = selectedReturnItems.reduce((sum, i) => sum + i.qty, 0);
   const isFullOrderReturn = totalPiecesInOrder > 0 && totalReturnPieces === totalPiecesInOrder;
 
-  // Sourcing total refund amount (B2.D / B2.E):
-  // Full-order return: direct from Sales sheet Total Amount (accounts for discount/delivery charge)
-  // Partial return: sum of selected item prices minus pro-rated discount
   let computedRefundAmount = 0;
   if (isFullOrderReturn) {
     computedRefundAmount = grandTotalSaleAmount;
@@ -261,6 +284,7 @@ export default function ReturnRefundDetailPage({ params }: { params: Promise<{ i
 
   // Toggle item selection checkbox
   function toggleCheckItem(id: string) {
+    if (isClosed) return;
     setCheckedItemIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -271,6 +295,7 @@ export default function ReturnRefundDetailPage({ params }: { params: Promise<{ i
 
   // Update return state per item line
   function updateItemState(id: string, field: string, value: any) {
+    if (isClosed) return;
     setReturnItemStates((prev) => ({
       ...prev,
       [id]: {
@@ -282,12 +307,17 @@ export default function ReturnRefundDetailPage({ params }: { params: Promise<{ i
 
   // Submit Handler (Save Progress vs Close Ticket)
   async function handleSubmit(actionType: 'save_progress' | 'close_ticket') {
+    if (isClosed) return;
     setError(null);
     setSuccess(null);
     setMissingInformation([]);
 
     setSaving(true);
     try {
+      const finalReasonVal = selectedReasonPreset === 'OTHER'
+        ? (customReasonText.trim() || 'OTHER')
+        : selectedReasonPreset;
+
       const payload = {
         action: actionType,
         version: record?.version,
@@ -297,6 +327,7 @@ export default function ReturnRefundDetailPage({ params }: { params: Promise<{ i
         modeOfRefund: refundMode,
         transactionId: refundMode === 'Cash' ? 'N/A' : transactionId.trim(),
         newDiscountApplied: extraDiscountVal,
+        reasonForReturn: finalReasonVal,
       };
 
       const res = await fetch(`/api/return-refund/${encodeURIComponent(invoiceId)}`, {
@@ -318,7 +349,7 @@ export default function ReturnRefundDetailPage({ params }: { params: Promise<{ i
       }
 
       if (actionType === 'close_ticket') {
-        setSuccess(`Return/Refund ticket ${invoiceId} closed successfully. Sale unlocked.`);
+        setSuccess(`Return/Refund ticket ${invoiceId} closed successfully.`);
         setTimeout(() => router.push('/dashboard/return-refund'), 1200);
       } else {
         setSuccess(`Progress saved for ticket ${invoiceId}. Sheet updated.`);
@@ -358,10 +389,34 @@ export default function ReturnRefundDetailPage({ params }: { params: Promise<{ i
       {error && <ErrorMessage message={error.message} variant="error" onDismiss={() => setError(null)} />}
       {success && <ErrorMessage message={success} variant="success" onDismiss={() => setSuccess(null)} />}
 
+      {/* A4: Closed All-Items Ticket Read-Only Banner */}
+      {isClosed && (
+        <div style={{
+          background: 'rgba(43, 98, 198, 0.08)',
+          border: '1.5px solid var(--color-brand-primary)',
+          borderRadius: 8,
+          padding: '16px 20px',
+          marginBottom: 24,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+        }}>
+          <span style={{ fontSize: 24 }}>🔒</span>
+          <div>
+            <div style={{ fontWeight: 700, color: 'var(--color-brand-primary)', fontSize: 14 }}>
+              Transaction Closed & Locked
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--color-ink)', marginTop: 2 }}>
+              This sale/order transaction is closed due to the customer requesting a full return and refund, and was verified and approved by <strong>{record?.closedBy || record?.createdBy || 'Admin'}</strong>.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Inline Missing Information Error Section (B2.C Validation Gate Failure) */}
       {missingInformation.length > 0 && (
         <div style={{
-          background: 'rgba(211, 47, 47, 0.08)',
+          background: 'rgba(176, 64, 58, 0.08)',
           border: '1.5px solid var(--color-error)',
           borderRadius: 8,
           padding: '16px 20px',
@@ -456,6 +511,54 @@ export default function ReturnRefundDetailPage({ params }: { params: Promise<{ i
             <span>Original Sale Total Amount:</span>
             <span className="tabular-nums">₹{grandTotalSaleAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
           </div>
+        </div>
+      </div>
+
+      {/* B1: Reason for Return / Refund Request Section */}
+      <div className="card" style={{ marginBottom: 24 }}>
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, marginBottom: 14, borderBottom: '1px solid var(--color-border)', paddingBottom: 8 }}>
+          Reason for Return / Refund Request
+        </h2>
+
+        <div style={{ display: 'grid', gap: 14 }}>
+          <div>
+            <label className="form-label" style={{ fontWeight: 600, fontSize: 13 }}>
+              Primary Reason <span style={{ color: 'var(--color-error)' }}>*</span>
+            </label>
+            <select
+              className="form-select"
+              value={selectedReasonPreset}
+              disabled={isClosed}
+              onChange={(e) => {
+                setSelectedReasonPreset(e.target.value);
+                if (e.target.value !== 'OTHER') {
+                  setCustomReasonText('');
+                }
+              }}
+            >
+              {PRESET_REASONS.map((reason) => (
+                <option key={reason} value={reason}>
+                  {reason}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {selectedReasonPreset === 'OTHER' && (
+            <div>
+              <label className="form-label" style={{ fontWeight: 600, fontSize: 13 }}>
+                Describe Reason Details <span style={{ color: 'var(--color-error)' }}>*</span>
+              </label>
+              <textarea
+                className="form-input"
+                rows={3}
+                placeholder="Please describe the specific reason for this return/refund request…"
+                value={customReasonText}
+                disabled={isClosed}
+                onChange={(e) => setCustomReasonText(e.target.value)}
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -787,25 +890,29 @@ export default function ReturnRefundDetailPage({ params }: { params: Promise<{ i
       {/* Action Buttons: Save Progress vs Close Ticket */}
       <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 24 }}>
         <Link href="/dashboard/return-refund" className="btn btn-ghost">
-          Cancel
+          {isClosed ? 'Back to List' : 'Cancel'}
         </Link>
-        <button
-          type="button"
-          className="btn btn-secondary"
-          onClick={() => handleSubmit('save_progress')}
-          disabled={saving}
-        >
-          {saving ? <LoadingGecko size="inline" label="Saving…" /> : '💾 Save Progress (Draft Only)'}
-        </button>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={() => handleSubmit('close_ticket')}
-          disabled={saving}
-          style={{ background: '#2e7d32', borderColor: '#2e7d32' }}
-        >
-          {saving ? <LoadingGecko size="inline" label="Processing…" /> : '✓ Close Ticket & Finalize'}
-        </button>
+        {!isClosed && (
+          <>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => handleSubmit('save_progress')}
+              disabled={saving || isClosed}
+            >
+              {saving ? <LoadingGecko size="inline" label="Saving…" /> : '💾 Save Progress (Draft Only)'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => handleSubmit('close_ticket')}
+              disabled={saving || isClosed}
+              style={{ background: 'var(--color-success)', borderColor: 'var(--color-success)' }}
+            >
+              {saving ? <LoadingGecko size="inline" label="Processing…" /> : '✓ Close Ticket & Finalize'}
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

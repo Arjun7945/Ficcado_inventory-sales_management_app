@@ -7,6 +7,7 @@ import { requireAuth } from '@/lib/auth';
 import { readAllRows, updateRow, deleteRow } from '@/lib/google/moduleSheet';
 import { validate, DamagedProductSchema } from '@/lib/validation';
 import { logActivity } from '@/lib/activityLogger';
+import { recordSalesLog, formatItemListWithSummary } from '@/lib/salesLogger';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,6 +67,17 @@ export async function PUT(request: Request, { params }: { params: Promise<{ rowI
       recordId: data!.itemName,
     });
 
+    const itemSummaryText = formatItemListWithSummary([{ itemName: data!.itemName, size: data!.size, qty: data!.quantity }], false).itemText;
+    const updateLogMsg = `Admin ${admin.name} updated damaged product record for ${itemSummaryText}, invoice ${data!.invoiceNumber || 'N/A'}, notes: ${data!.reasonNotes || 'N/A'}. Updated at ${now}.`;
+
+    await recordSalesLog({
+      module: 'Damaged Products',
+      operation: 'Update',
+      relatedInvoiceNumber: data!.invoiceNumber,
+      message: updateLogMsg,
+      adminName: admin.name,
+    });
+
     return Response.json({ success: true, message: 'Damaged product record updated.' });
   } catch (err) {
     return Response.json({ error: 'Failed to update damaged product record.', detail: (err as Error).message }, { status: 500 });
@@ -83,13 +95,34 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ rowInde
       return Response.json({ error: 'Invalid row index.' }, { status: 400 });
     }
 
+    const rows = await readAllRows('damaged_products');
+    const row = rows[rowIndex - 1];
+    const itemName = row ? row[COL.itemName] : 'Unknown Item';
+    const size = row ? row[COL.size] : 'N/A';
+    const invNum = row ? row[COL.invoiceNumber] : '';
+    const origCreatedAt = row ? row[COL.createdAt] : '';
+
     await deleteRow('damaged_products', rowIndex);
+
     await logActivity({
       adminName: admin.name,
       action: 'deleted',
       module: 'Damaged Products Management',
       moduleKey: 'damaged_products',
       recordId: `row ${rowIndex}`,
+    });
+
+    const qtyVal = row ? (parseInt(row[COL.quantity], 10) || 1) : 1;
+    const itemSummaryText = formatItemListWithSummary([{ itemName, size, qty: qtyVal }], false).itemText;
+    const now = new Date().toISOString();
+    const deleteLogMsg = `Admin ${admin.name} deleted damaged product record for ${itemSummaryText}, invoice ${invNum || 'N/A'}, originally logged at ${origCreatedAt}. Deleted at ${now}.`;
+
+    await recordSalesLog({
+      module: 'Damaged Products',
+      operation: 'Delete',
+      relatedInvoiceNumber: invNum,
+      message: deleteLogMsg,
+      adminName: admin.name,
     });
 
     return Response.json({ success: true, message: 'Damaged product record deleted.' });

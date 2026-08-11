@@ -131,7 +131,7 @@ export type ReplacementInput = z.infer<typeof ReplacementSchema>;
 /** Return/Refund Management */
 export const ReturnRefundSchema = z.object({
   invoiceNumber:              requiredString('Invoice number'),
-  itemVerificationStatus:     z.string().default('No Damage'),
+  itemVerificationStatus:     z.string().default('Not Received — In Transit'),
   refundStatus:               requiredString('Refund status'),
   refundAmount:               positiveNumber('Refund amount'),
   refundCompletedAt:          z.string().optional(),
@@ -139,6 +139,21 @@ export const ReturnRefundSchema = z.object({
   modeOfRefund:               z.string().optional(),
   dispositionOfReturnedItems: z.string().optional(),
   restockDestination:         z.string().optional(),
+  customerName:               z.string().optional(),
+  customerPhoneNumber:        z.string().optional(),
+  customerAddress:            z.string().optional(),
+  customerEmail:              z.string().optional(),
+  originalPurchasedItems:     z.string().optional(),
+  originalItemSizes:          z.string().optional(),
+  originalItemQuantities:     z.string().optional(),
+  originalItemPrices:         z.string().optional(),
+  originalDiscount:           z.coerce.number().optional(),
+  originalDeliveryCharge:     z.coerce.number().optional(),
+  originalTotalAmount:        z.coerce.number().optional(),
+  originalSaleCreatedAt:      z.string().optional(),
+  originalSaleCreatedBy:      z.string().optional(),
+  reasonForReturn:            z.string().optional(),
+  closedBy:                   z.string().optional(),
 });
 export type ReturnRefundInput = z.infer<typeof ReturnRefundSchema>;
 

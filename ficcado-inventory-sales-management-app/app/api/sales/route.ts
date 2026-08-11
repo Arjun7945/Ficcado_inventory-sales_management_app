@@ -9,6 +9,7 @@ import { readAllRows, appendRows, updateRow } from '@/lib/google/moduleSheet';
 import { validate, SalesSchema } from '@/lib/validation';
 import { logActivity } from '@/lib/activityLogger';
 import { recordInventoryHistory } from '@/lib/inventoryHistory';
+import { recordSalesLog, formatPrice, formatStockLocation, groupItemLines, formatItemListWithSummary } from '@/lib/salesLogger';
 
 export const dynamic = 'force-dynamic';
 
@@ -532,7 +533,7 @@ export async function POST(request: Request) {
       adminName:     admin.name,
     });
 
-    // 6. Enhanced Activity Logging
+    // 6. Enhanced Activity Logging & Sales Log Audit
     const itemsSummary = Object.values(itemSizeRequests).map((r) => `${r.qty} piece(s) of ${r.itemName} (${r.size})`).join(', ');
     const sourceText = fulfilmentSource === 'Take from Inventory' ? 'unassigned inventory' : `${fulfilmentSource}'s warehouse`;
     const logMsg = `${admin.name} created sale ${invoiceNumber} — ${itemsSummary}, fulfilled from ${sourceText}.`;
@@ -543,6 +544,33 @@ export async function POST(request: Request) {
       module:     'Sales Management',
       moduleKey:  'sales',
       recordId:   invoiceNumber,
+    });
+
+    // Generate narrative Sales Log entry
+    const groupedLogItems = groupItemLines(
+      Array.isArray(body.items) && body.items.length > 0
+        ? body.items
+        : Object.values(itemSizeRequests).map((r) => ({
+            itemName: r.itemName,
+            size: r.size,
+            qty: r.qty,
+            unitPrice: catalogPriceMap[r.itemName.toLowerCase()] || 0,
+          }))
+    );
+    const { itemText } = formatItemListWithSummary(groupedLogItems, true);
+
+    const deliveryText = deliveryChargeToggle && deliveryChargeAmount > 0
+      ? `charged Rs: ${deliveryChargeAmount} as delivery charge`
+      : `was not charged delivery charge (FREE DELIVERY)`;
+
+    const salesLogMsg = `Admin ${admin.name} have created a new sale ${invoiceNumber}, for customer ${customerName}, on items ${itemText}. The items were taken from ${formatStockLocation(fulfilmentSource)}. Customer was given a discount of Rs: ${discount || 0}, and customer ${deliveryText}. The final total amount was ${formatPrice(totalAmount)}. The sale was created at ${now}.`;
+
+    await recordSalesLog({
+      module: 'Sales',
+      operation: 'Create',
+      relatedInvoiceNumber: invoiceNumber,
+      message: salesLogMsg,
+      adminName: admin.name,
     });
 
     return Response.json({

@@ -37,40 +37,66 @@ export async function GET() {
       safeRead('return_refund'),
     ]);
 
-    // Today's sales & revenue calculation
+    // Today & Overall sales calculation
     let todaySales = 0;
     let todayRevenue = 0;
+    let todayUnpaidRevenue = 0;
+    let todayUnpaidSales = 0;
+    let todayItemsSold = 0;
+
+    let overallSales = 0;
+    let overallRevenue = 0;
+    let overallUnpaidRevenue = 0;
+    let overallUnpaidSales = 0;
 
     if (salesRows.length > 0) {
       const sMap = buildHeaderMap(salesRows[0]);
       for (const row of salesRows.slice(1)) {
         const createdAt = getCellByHeader(row, sMap, 'Created At');
-        if (!createdAt) continue;
+        const amountStr = getCellByHeader(row, sMap, 'Total Amount');
+        const amount = parseFloat(amountStr.replace(/[^0-9.]/g, '')) || 0;
+        const totalItemsCount = parseInt(getCellByHeader(row, sMap, 'Total Number of Items Purchased', '1'), 10) || 1;
+        const paymentStatus = (getCellByHeader(row, sMap, 'Payment Status') || '').trim();
+        const isPaid = paymentStatus.toLowerCase() === 'paid';
 
-        let isToday = false;
-        if (createdAt.startsWith(todayISO) || createdAt.startsWith(todayLocal)) {
-          isToday = true;
+        overallSales++;
+        if (isPaid) {
+          overallRevenue += amount;
         } else {
-          const dateObj = new Date(createdAt);
-          if (!isNaN(dateObj.getTime())) {
-            const isoDate = dateObj.toISOString().slice(0, 10);
-            const localDate = dateObj.toLocaleDateString('en-CA');
-            if (isoDate === todayISO || localDate === todayLocal) {
-              isToday = true;
-            }
-          }
+          overallUnpaidRevenue += amount;
+          overallUnpaidSales++;
         }
 
-        if (isToday) {
-          todaySales++;
-          const amountStr = getCellByHeader(row, sMap, 'Total Amount');
-          const amount = parseFloat(amountStr.replace(/[^0-9.]/g, '')) || 0;
-          todayRevenue += amount;
+        if (createdAt) {
+          let isToday = false;
+          if (createdAt.startsWith(todayISO) || createdAt.startsWith(todayLocal)) {
+            isToday = true;
+          } else {
+            const dateObj = new Date(createdAt);
+            if (!isNaN(dateObj.getTime())) {
+              const isoDate = dateObj.toISOString().slice(0, 10);
+              const localDate = dateObj.toLocaleDateString('en-CA');
+              if (isoDate === todayISO || localDate === todayLocal) {
+                isToday = true;
+              }
+            }
+          }
+
+          if (isToday) {
+            todaySales++;
+            todayItemsSold += totalItemsCount;
+            if (isPaid) {
+              todayRevenue += amount;
+            } else {
+              todayUnpaidRevenue += amount;
+              todayUnpaidSales++;
+            }
+          }
         }
       }
     }
 
-    // Total items
+    // Total catalog items
     const totalItems = Math.max(0, itemsRows.length - 1);
 
     // Low stock (quantity == 0 in inventory)
@@ -85,25 +111,37 @@ export async function GET() {
     }
 
     // Pending replacements
-    let pendingReplacement = 0;
+    let pendingReplacementToday = 0;
+    let totalPendingReplacements = 0;
     if (replacementRows.length > 0) {
       const repMap = buildHeaderMap(replacementRows[0]);
       for (const row of replacementRows.slice(1)) {
         const status = getCellByHeader(row, repMap, 'Invoice Status');
-        if (status.toLowerCase().includes('pending') || status.toLowerCase().includes('approved') || status.toLowerCase().includes('dispatched')) {
-          pendingReplacement++;
+        const isPending = status.toLowerCase().includes('pending') || status.toLowerCase().includes('approved') || status.toLowerCase().includes('dispatched');
+        if (isPending) {
+          totalPendingReplacements++;
+          const createdAt = getCellByHeader(row, repMap, 'Created At');
+          if (createdAt && (createdAt.startsWith(todayISO) || createdAt.startsWith(todayLocal))) {
+            pendingReplacementToday++;
+          }
         }
       }
     }
 
     // Pending refunds
-    let pendingRefunds = 0;
+    let pendingRefundsToday = 0;
+    let totalPendingRefunds = 0;
     if (refundRows.length > 0) {
       const refMap = buildHeaderMap(refundRows[0]);
       for (const row of refundRows.slice(1)) {
         const status = getCellByHeader(row, refMap, 'Refund Status');
-        if (status.toLowerCase().includes('pending') || status === '') {
-          pendingRefunds++;
+        const isPending = status.toLowerCase().includes('pending') || status === '' || status === 'Approved';
+        if (isPending) {
+          totalPendingRefunds++;
+          const createdAt = getCellByHeader(row, refMap, 'Created At');
+          if (createdAt && (createdAt.startsWith(todayISO) || createdAt.startsWith(todayLocal))) {
+            pendingRefundsToday++;
+          }
         }
       }
     }
@@ -112,10 +150,19 @@ export async function GET() {
       stats: {
         todaySales,
         todayRevenue,
+        todayUnpaidRevenue,
+        todayUnpaidSales,
+        todayItemsSold,
         totalItems,
         lowStockCount,
-        pendingReplacement,
-        pendingRefunds,
+        pendingReplacement: pendingReplacementToday,
+        pendingRefunds: pendingRefundsToday,
+        overallSales,
+        overallRevenue,
+        overallUnpaidRevenue,
+        overallUnpaidSales,
+        totalPendingReplacements,
+        totalPendingRefunds,
       },
     });
   } catch (err) {

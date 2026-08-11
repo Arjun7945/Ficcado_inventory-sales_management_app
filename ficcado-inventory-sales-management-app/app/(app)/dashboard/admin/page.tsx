@@ -41,6 +41,7 @@ const REPORT_MODULES = [
   { key: 'damaged_products',  label: 'Damaged Products' },
   { key: 'notes',             label: 'Notes Management' },
   { key: 'activity_logs',     label: 'Activity Logs' },
+  { key: 'sales_log',         label: 'Sales Log Audit' },
 ];
 
 export default function AdminControlPage() {

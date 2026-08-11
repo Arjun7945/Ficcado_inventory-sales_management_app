@@ -95,3 +95,61 @@ All Phase 28 through Phase 34 requirements from `Part4_of_implementation_ficcado
 
 4. **Audit & Build Verification (Phase 34)**:
    - Verified TypeScript compilation (`node node_modules/typescript/bin/tsc --noEmit`) with zero errors across all components, API routes, and schema utilities.
+
+## 2026-08-11 - PART 5 COMPLETE
+All Phase 35 through Phase 44 requirements from `Part5_of_implementation_ficcado.md` fully implemented and verified:
+
+1. **Auto-Deletion of Sales Row on All-Items Return (Phases 35 & 36)**:
+   - Updated `PUT /api/return-refund/[id]` so that when an all-items return ticket is closed, the underlying row in the `Sales` sheet is automatically deleted via `deleteRow('sales', sIdx + 2)`.
+   - Populated snapshot fields (`Customer Name`, `Customer Phone Number`, `Customer Address`, `Customer Email`, `Original Purchased Items`, `Original Item Sizes`, `Original Item Quantities`, `Original Item Prices`, `Original Discount`, `Original Delivery Charge`, `Original Total Amount`, `Original Sale Created At`, `Original Sale Created By`) directly on the `return_refund` record when the ticket is opened.
+   - Updated `GET /api/return-refund/[id]` to fall back seamlessly to snapshot fields if the original `Sales` row was deleted.
+
+2. **Locked View for Closed All-Items Tickets (Phase 37 / A4)**:
+   - `/dashboard/return-refund/[id]` now displays a top banner: *"This sale/order transaction is closed due to the customer requesting a full return and refund, and was verified and approved by {closedBy}."*
+   - All inputs, checkboxes, select dropdowns, `Save Progress`, and `Close Ticket` buttons are locked in read-only state when `isClosed` is true.
+
+3. **Cash Refund Transaction ID Behavior (Phase 37 / A5)**:
+   - Confirmed `Transaction ID` input field remains hidden when `Refund Mode === 'Cash'`.
+
+4. **Dashboard View Mode Toggle (Phase 38 / A6)**:
+   - Added dropdown selector above the Dashboard summary cards allowing toggle between `Today's Sale` (default) and `Overall Sale`.
+   - Computed both `today` and `overall` metrics in `GET /api/dashboard/stats`:
+     - `Today's Sale`: Revenue Today, Sales Count Today, Total Items Sold Today, Low Stock Alerts, Pending Replacements Today, Pending Return/Refund Today.
+     - `Overall Sale`: Total Revenue, Total Sales Made, Total Pending Replacements (All Time), Total Pending Return/Refund (All Time).
+   - Standardized label across Dashboard to **Pending Return/Refund**.
+
+5. **Reason for Return / Refund Request Section (Phase 39 / B1)**:
+   - Added "Reason for Return / Refund Request" card directly below Original Purchased Items Summary on `/dashboard/return-refund/[id]`.
+   - Preset dropdown (`Wrong Size / Fit`, `Damaged or Defective Product`, `Wrong Product Received`, `Product Doesn't Match Description / Photos`, `Not Satisfied with Quality`, `OTHER`).
+   - Conditional free-text details field rendered when `OTHER` is selected. Saved to `Reason for Return` column in Google Sheets.
+
+6. **Sales Log Module & Audit Trail System (Phases 40, 41, 42 / B3.A & B3.B)**:
+   - Registered `sales_log` sheet module key with schema (`S.No`, `Module`, `Operation`, `Related Invoice Number`, `Log Message`, `Created At`, `Created By`, `Updated At`, `Updated By`).
+   - Created `lib/salesLogger.ts` (`recordSalesLog`, `formatPrice`, `formatStockLocation`).
+   - Integrated narrative logging across all 5 operational modules:
+     - **Sales**: Sale Created, Sale Updated, Sale Deleted, Return/Refund Created, Replacement Created.
+     - **Replacement**: Replacement Progress Saved, Replacement Completed, Replacement Deleted.
+     - **Return/Refund**: Return/Refund — Progress Saved, Return/Refund Closed, Return/Refund Deleted.
+     - **Damaged Products**: Damaged Product Created, Damaged Product Updated, Damaged Product Deleted.
+     - **Items**: Item Created, Item Updated, Item Deleted.
+   - Built `GET /api/sales-log` and `/dashboard/sales-log` page with search, module filtering, and responsive table. Added "Sales Log" to `AppSidebar` and a 10-item activity feed widget to the Dashboard home.
+
+7. **Professional Sheet Formatting Engine (Phase 43 / C1)**:
+   - Created `lib/google/sheetFormatter.ts` (`formatSheet`, `formatAllSheets`) applying Dark Navy header styling (`#1E3A8A`), bold white text, frozen header row 1, auto text wrapping, and column width auto-resizing.
+   - Built `POST /api/setup/format-sheets` endpoint and wired auto-formatting into Setup Wizard `auto-create-all` action.
+
+8. **Itemized Quantity Logging & Total Items/Pieces Summary Enhancement**:
+   - Created `formatItemListWithSummary`, `groupItemLines`, and `parseAndGroupCommaSeparatedItems` in `lib/salesLogger.ts`.
+   - Updated narrative sales log messages across all modules (`Sales`, `Replacement`, `Return/Refund`, `Damaged Products`) to explicitly append `(Qty: N)` per item line and end with `"so in total X items and Y pieces"`.
+   - Example output:
+     `Admin Sinan have created a new sale FIC-1, for customer SHYAM, on items camera- blue (S) (Rs: 350) (Qty: 1), maharajas- black (S) (Rs: 500) (Qty: 1), Camera- White (S) (Rs: 250) (Qty: 1), Haloin - black (S) (Rs: 300) (Qty: 1) so in total 4 items and 4 pieces. The items were taken from Main Inventory (Unassigned Main Stock)...`
+
+9. **Dashboard Revenue & Unpaid Sales Metrics Refactor**:
+   - Refactored `GET /api/dashboard/stats` to filter revenue calculations strictly to orders with `Payment Status === 'Paid'`.
+   - Added `todayUnpaidRevenue`, `todayUnpaidSales`, `overallUnpaidRevenue`, and `overallUnpaidSales` tracking.
+   - Updated Dashboard UI ([app/(app)/dashboard/page.tsx](file:///e:/Ficcado/Ficcado_inventory-sales_management_app/ficcado-inventory-sales-management-app/app/%28app%29/dashboard/page.tsx)):
+     - **Today's Sale view**: Renders **Revenue Today (Paid)** and **Unpaid Sale Today** (`₹Amount (N unpaid orders)`).
+     - **Overall Sale view**: Renders **Total Revenue (Paid)** and **Total Unpaid Sale** (`₹Amount (N unpaid orders)`).
+
+10. **Full System Verification**:
+   - Verified zero TypeScript compilation errors via `node node_modules/typescript/bin/tsc --noEmit`.

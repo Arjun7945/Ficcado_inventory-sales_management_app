@@ -11,6 +11,7 @@ import { buildHeaderMap, getCellByHeader, formatRowFromHeaderMap } from '@/lib/g
 import { calculateSaleTotalAmount } from '@/lib/salesPricing';
 import { logActivity } from '@/lib/activityLogger';
 import { recordInventoryHistory } from '@/lib/inventoryHistory';
+import { recordSalesLog, formatPrice, formatStockLocation, parseAndGroupCommaSeparatedItems, formatItemListWithSummary } from '@/lib/salesLogger';
 
 export const dynamic = 'force-dynamic';
 
@@ -609,6 +610,44 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       recordId: id,
     });
 
+    if (isCompletionRequest) {
+      const oldDispText = disposition === 'Returned to Inventory'
+        ? `sent to ${formatStockLocation(restockDestination)}`
+        : 'sent to Damaged Products';
+
+      const groupedOldComp = parseAndGroupCommaSeparatedItems(removedItemStr, removedSizesStr, '', removedQtyStr);
+      const { itemText: oldCompText } = formatItemListWithSummary(groupedOldComp, false);
+
+      const groupedNewComp = parseAndGroupCommaSeparatedItems(newFinalItemsStr, newFinalSizesStr, newFinalPricesStr, newFinalQtyStr);
+      const { itemText: newCompText } = formatItemListWithSummary(groupedNewComp, true);
+
+      const compSalesLogMsg = `Admin ${admin.name} marked the replacement for invoice ${id} as completed. Old item(s) ${oldCompText} were ${oldDispText}. New item(s) ${newCompText} were dispatched from ${formatStockLocation(sourceLocation)}. Final delivery charge: ${formatPrice(effectiveDeliveryCharge)}; Final discount: ${formatPrice(effectiveDiscount)}. The linked sale's status and delivery status were updated accordingly. Completed at ${now}.`;
+
+      await recordSalesLog({
+        module: 'Replacement',
+        operation: 'Update',
+        relatedInvoiceNumber: id,
+        message: compSalesLogMsg,
+        adminName: admin.name,
+      });
+    } else {
+      const groupedOldDraft = parseAndGroupCommaSeparatedItems(removedItemStr, removedSizesStr, '', removedQtyStr);
+      const { itemText: oldDraftText } = formatItemListWithSummary(groupedOldDraft, false);
+
+      const groupedNewDraft = parseAndGroupCommaSeparatedItems(newIssuedItemsStr, newIssuedSizesStr, '', '');
+      const { itemText: newDraftText } = formatItemListWithSummary(groupedNewDraft, false);
+
+      const draftSalesLogMsg = `Admin ${admin.name} saved progress on the replacement for invoice ${id} (status remains ${targetStatus}). Old item(s) selected for exchange: ${oldDraftText}; New replacement item(s): ${newDraftText}, sourced from ${formatStockLocation(sourceLocation)}; Item Disposition Path set to ${disposition || 'N/A'}, restock destination ${formatStockLocation(restockDestination)}; Delivery charge: ${formatPrice(effectiveDeliveryCharge)}; Discount: ${formatPrice(effectiveDiscount)}. This save did not complete the replacement — the transaction remains open. Saved at ${now}.`;
+
+      await recordSalesLog({
+        module: 'Replacement',
+        operation: 'Update',
+        relatedInvoiceNumber: id,
+        message: draftSalesLogMsg,
+        adminName: admin.name,
+      });
+    }
+
     return Response.json({
       success: true,
       completed: isCompletionRequest,
@@ -638,6 +677,19 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
     const idx  = rRows.slice(1).findIndex((r) => getCellByHeader(r, rMap, 'Invoice Number') === id);
     if (idx === -1) return Response.json({ error: 'Replacement record not found.' }, { status: 404 });
 
+    const row = rRows[idx + 1];
+    const origCreatedAt = getCellByHeader(row, rMap, 'Created At');
+    const oldItemsStr = getCellByHeader(row, rMap, 'Last Purchased Item(s)');
+    const oldSizesStr = getCellByHeader(row, rMap, 'Last Purchased Item(s) Size');
+    const newItemsStr = getCellByHeader(row, rMap, 'New Item(s)');
+    const newSizesStr = getCellByHeader(row, rMap, 'New Item(s) Size');
+
+    const groupedOldDelete = parseAndGroupCommaSeparatedItems(oldItemsStr, oldSizesStr, '', '');
+    const { itemText: oldDeleteText } = formatItemListWithSummary(groupedOldDelete, false);
+
+    const groupedNewDelete = parseAndGroupCommaSeparatedItems(newItemsStr, newSizesStr, '', '');
+    const { itemText: newDeleteText } = formatItemListWithSummary(groupedNewDelete, false);
+
     await deleteRow('replacement', idx + 2);
 
     if (sRows.length > 0) {
@@ -655,6 +707,17 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
         await updateRow('sales', sIdx + 2, formatRowFromHeaderMap(sObj, sRows[0]));
       }
     }
+
+    const now = new Date().toISOString();
+    const deleteLogMsg = `Admin ${admin.name} deleted the replacement record for invoice ${id}, originally created at ${origCreatedAt}, which had old item(s) ${oldDeleteText} being replaced with ${newDeleteText}. Deleted at ${now}.`;
+
+    await recordSalesLog({
+      module: 'Replacement',
+      operation: 'Delete',
+      relatedInvoiceNumber: id,
+      message: deleteLogMsg,
+      adminName: admin.name,
+    });
 
     await logActivity({
       adminName: admin.name,

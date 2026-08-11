@@ -32,6 +32,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Damaged Products',  href: '/dashboard/damaged-products',  icon: '⚠️' },
   { label: 'Customers',         href: '/dashboard/customers',         icon: '👥', section: 'RECORDS' },
   { label: 'Activity Log',      href: '/dashboard/activity',          icon: '◉' },
+  { label: 'Sales Log',         href: '/dashboard/sales-log',         icon: '📋' },
   { label: 'Inventory History', href: '/dashboard/inventory-history', icon: '📊' },
   { label: 'Keep Notes',        href: '/dashboard/notes',             icon: '✎' },
   { label: 'Admin Control',     href: '/dashboard/admin',             icon: '⚙', section: 'ADMIN' },
