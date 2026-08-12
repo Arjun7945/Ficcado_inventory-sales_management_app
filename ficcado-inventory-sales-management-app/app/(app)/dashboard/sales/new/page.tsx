@@ -19,6 +19,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
+import MobileBackButton from '@/components/MobileBackButton';
 
 interface ItemCatalogEntry {
   itemName: string;
@@ -43,6 +44,9 @@ interface FoundCustomer {
 
 export default function NewSalePage() {
   const router = useRouter();
+
+  // Mobile Step State
+  const [mobileStep, setMobileStep] = useState<1 | 2 | 3>(1);
 
   // Catalog & Handlers
   const [catalog, setCatalog] = useState<ItemCatalogEntry[]>([]);
@@ -262,15 +266,57 @@ export default function NewSalePage() {
 
   return (
     <div style={{ maxWidth: 840, margin: '0 auto', paddingBottom: 40 }}>
+      <MobileBackButton />
+
       {/* Page Header */}
-      <div className="page-header" style={{ marginBottom: 24 }}>
+      <div className="page-header" style={{ marginBottom: 16 }}>
         <div>
           <h1 className="page-title">Create New Sale Order</h1>
-          <div className="page-subtitle">Auto-generated invoice numbering, phone lookup, discount deduction & inventory tracking</div>
+          <div className="page-subtitle">Auto-generated invoice numbering, phone lookup & inventory tracking</div>
         </div>
-        <Link href="/dashboard/sales" className="btn btn-ghost btn-sm">
+        <Link href="/dashboard/sales" className="btn btn-ghost btn-sm desktop-only">
           ← Back to Sales List
         </Link>
+      </div>
+
+      {/* Mobile Step Control Header */}
+      <div className="mobile-only" style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-display)', color: 'var(--color-brand-primary)' }}>
+            STEP {mobileStep} OF 3: {mobileStep === 1 ? 'Items & Quantities' : mobileStep === 2 ? 'Customer & Fulfilment' : 'Review & Submit'}
+          </span>
+          <div className="mobile-stepper-dots">
+            <div className={`mobile-stepper-dot ${mobileStep >= 1 ? 'active' : ''}`} />
+            <div className={`mobile-stepper-dot ${mobileStep >= 2 ? 'active' : ''}`} />
+            <div className={`mobile-stepper-dot ${mobileStep >= 3 ? 'active' : ''}`} />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button
+            type="button"
+            className={`btn btn-sm ${mobileStep === 1 ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ flex: 1, fontSize: 12, justifyContent: 'center' }}
+            onClick={() => setMobileStep(1)}
+          >
+            1. Items
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm ${mobileStep === 2 ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ flex: 1, fontSize: 12, justifyContent: 'center' }}
+            onClick={() => setMobileStep(2)}
+          >
+            2. Customer
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm ${mobileStep === 3 ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ flex: 1, fontSize: 12, justifyContent: 'center' }}
+            onClick={() => setMobileStep(3)}
+          >
+            3. Review
+          </button>
+        </div>
       </div>
 
       {error && <ErrorMessage message={error.message} variant="error" onDismiss={() => setError(null)} />}

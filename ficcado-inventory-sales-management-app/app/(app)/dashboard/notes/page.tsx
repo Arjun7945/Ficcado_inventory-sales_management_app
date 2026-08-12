@@ -8,6 +8,7 @@
 import React, { useEffect, useState } from 'react';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
+import MobileBackButton from '@/components/MobileBackButton';
 
 interface Note {
   rowIndex:  number;
@@ -104,6 +105,8 @@ export default function NotesPage() {
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
+      <MobileBackButton />
+
       <div className="page-header">
         <div>
           <h1 className="page-title">Keep Notes</h1>

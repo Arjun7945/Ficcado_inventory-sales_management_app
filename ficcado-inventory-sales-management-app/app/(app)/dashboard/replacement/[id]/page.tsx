@@ -19,6 +19,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
+import MobileBackButton from '@/components/MobileBackButton';
 import { calculateSaleTotalAmount } from '@/lib/salesPricing';
 
 interface ReplacementRecord {
@@ -593,6 +594,8 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
 
   return (
     <div style={{ maxWidth: 880, margin: '0 auto', paddingBottom: 40 }}>
+      <MobileBackButton />
+
       {/* Top Header & Action Bar */}
       <div style={{ marginBottom: 16 }}>
         <Link href="/dashboard/replacement" style={{ fontSize: 13, textDecoration: 'none', color: 'var(--color-brand-primary)', fontWeight: 600 }}>

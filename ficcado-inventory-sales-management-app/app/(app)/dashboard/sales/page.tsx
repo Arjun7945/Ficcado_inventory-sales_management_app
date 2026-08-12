@@ -15,6 +15,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
+import MobileBackButton from '@/components/MobileBackButton';
 
 interface Sale {
   rowIndex:             number;
@@ -94,6 +95,13 @@ export default function SalesPage() {
     window.open(`/api/invoice/${encodeURIComponent(invoiceNumber)}/pdf`, '_blank');
   }
 
+  function getWhatsAppUrl(sale: Sale) {
+    const cleanPhone = sale.customerPhone.replace(/\D/g, '');
+    const phoneWithCountry = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+    const msg = `Hello ${sale.customerName}, here are your Ficcado order details for Invoice #${sale.invoiceNumber}. Total Amount: ₹${sale.totalAmount}. Thank you for shopping with us!`;
+    return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(msg)}`;
+  }
+
   async function handleSendConfirmation(sale: Sale) {
     const inv = sale.invoiceNumber;
     setSendingEmail((prev) => ({ ...prev, [inv]: true }));
@@ -129,6 +137,8 @@ export default function SalesPage() {
 
   return (
     <div>
+      <MobileBackButton />
+
       <div className="page-header">
         <div>
           <h1 className="page-title">Sales</h1>
@@ -166,8 +176,97 @@ export default function SalesPage() {
         <button className="btn btn-ghost btn-sm" onClick={loadSales} disabled={loading}>↻ Refresh</button>
       </div>
 
-      {/* Table */}
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      {/* ── Mobile Card List View ────────────────────────────────────────── */}
+      <div className="mobile-only">
+        {loading ? (
+          <div className="card" style={{ padding: 36, textAlign: 'center' }}>
+            <LoadingGecko label="Loading sales directory…" />
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="card empty-state">
+            <div style={{ fontSize: 28 }}>◆</div>
+            <div className="empty-state-title">No sales found</div>
+            <div style={{ fontSize: 13, color: 'var(--color-ink-muted)' }}>
+              {search || filterPayment ? 'Try clearing filters.' : 'Tap "+ New Sale" to record a sale.'}
+            </div>
+          </div>
+        ) : (
+          <div className="mobile-card-list">
+            {filtered.map((sale) => (
+              <div key={sale.invoiceNumber} className="mobile-data-card">
+                <div className="mobile-data-card-header">
+                  <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--color-brand-primary)', fontSize: 14 }}>
+                    {sale.invoiceNumber}
+                  </span>
+                  <span className={`badge ${PAYMENT_BADGE[sale.paymentStatus] ?? 'badge-neutral'}`}>
+                    {sale.paymentStatus}
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>{sale.customerName}</div>
+                    <div style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>📞 {sale.customerPhone}</div>
+                    {sale.customerEmail && (
+                      <div style={{ fontSize: 11, color: 'var(--color-ink-muted)' }}>✉ {sale.customerEmail}</div>
+                    )}
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontWeight: 700, fontSize: 15, fontFamily: 'var(--font-display)' }}>
+                      ₹{parseFloat(sale.totalAmount || '0').toLocaleString('en-IN')}
+                    </div>
+                    {sale.discount > 0 && (
+                      <div style={{ fontSize: 10, color: 'var(--color-error)' }}>−₹{sale.discount} disc.</div>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 12, color: 'var(--color-ink-muted)', marginTop: 2 }}>
+                  <strong>Items:</strong> {sale.itemNames || '—'} ({sale.sizes || '—'})
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                  <span className={`badge ${STATUS_BADGE[sale.saleStatus] ?? 'badge-neutral'}`} style={{ fontSize: 11 }}>
+                    {sale.saleStatus}
+                  </span>
+                  <span style={{ fontSize: 11, color: 'var(--color-ink-muted)' }}>
+                    {sale.createdAt ? new Date(sale.createdAt).toLocaleDateString('en-IN') : ''}
+                  </span>
+                </div>
+
+                {rowFeedback[sale.invoiceNumber] && (
+                  <ErrorMessage
+                    message={rowFeedback[sale.invoiceNumber].message}
+                    variant={rowFeedback[sale.invoiceNumber].type === 'success' ? 'success' : 'error'}
+                    onDismiss={() => setRowFeedback((prev) => { const n = { ...prev }; delete n[sale.invoiceNumber]; return n; })}
+                  />
+                )}
+
+                {/* Mobile Quick Action Buttons */}
+                <div className="mobile-data-card-actions">
+                  <Link href={`/dashboard/sales/${sale.invoiceNumber}`} className="btn btn-ghost btn-sm" style={{ flex: 1, justifyContent: 'center' }}>
+                    ✎ Edit / View
+                  </Link>
+                  <button onClick={() => handleDownloadInvoice(sale.invoiceNumber)} className="btn btn-ghost btn-sm" title="Download Invoice" style={{ color: 'var(--color-brand-primary)' }}>
+                    ⬇ PDF
+                  </button>
+                  {sale.customerEmail ? (
+                    <button onClick={() => handleSendConfirmation(sale)} disabled={sendingEmail[sale.invoiceNumber]} className="btn btn-ghost btn-sm" style={{ color: 'var(--color-success)' }}>
+                      {sendingEmail[sale.invoiceNumber] ? '…' : '✉ Email'}
+                    </button>
+                  ) : null}
+                  <a href={getWhatsAppUrl(sale)} target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-sm" style={{ color: '#25D366' }}>
+                    💬 WA
+                  </a>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Desktop Table View ─────────────────────────────────────────── */}
+      <div className="desktop-only card" style={{ padding: 0, overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: 48, textAlign: 'center' }}>
             <LoadingGecko label="Loading sales orders directory…" />
@@ -323,7 +422,7 @@ export default function SalesPage() {
                       </td>
                     </tr>
 
-                    {/* Inline row feedback (success / error after email send) */}
+                    {/* Inline row feedback */}
                     {rowFeedback[sale.invoiceNumber] && (
                       <tr>
                         <td colSpan={9} style={{ padding: '4px 12px 8px' }}>
@@ -348,7 +447,6 @@ export default function SalesPage() {
           </div>
         )}
       </div>
-
     </div>
   );
 }

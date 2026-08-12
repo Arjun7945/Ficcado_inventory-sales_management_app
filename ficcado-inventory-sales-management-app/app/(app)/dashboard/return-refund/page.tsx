@@ -13,6 +13,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
+import MobileBackButton from '@/components/MobileBackButton';
 
 interface ReturnRecord {
   rowIndex:           number;
@@ -74,6 +75,8 @@ export default function ReturnRefundPage() {
 
   return (
     <div>
+      <MobileBackButton />
+
       <div className="page-header">
         <div>
           <h1 className="page-title">Returns & Refunds</h1>
@@ -98,7 +101,61 @@ export default function ReturnRefundPage() {
         />
       </div>
 
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      {/* ── Mobile Card List View ────────────────────────────────────────── */}
+      <div className="mobile-only">
+        {loading ? (
+          <div className="card" style={{ padding: 36, textAlign: 'center' }}>
+            <LoadingGecko label="Loading return/refund tickets…" />
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="card empty-state">
+            <div style={{ fontSize: 28 }}>↩</div>
+            <div className="empty-state-title">No return/refund records</div>
+          </div>
+        ) : (
+          <div className="mobile-card-list">
+            {filtered.map((r) => {
+              const isDone = r.refundStatus === 'Completed' || r.refundStatus === 'Refund Completed';
+              return (
+                <div key={r.invoiceNumber} className="mobile-data-card">
+                  <div className="mobile-data-card-header">
+                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--color-brand-primary)', fontSize: 14 }}>
+                      {r.invoiceNumber}
+                    </span>
+                    <span className={`badge ${isDone ? 'badge-success' : 'badge-warning'}`}>
+                      {r.refundStatus}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>
+                      Items: {r.returnedItems || 'Pending Selection'}
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: 14, fontFamily: 'var(--font-display)', color: 'var(--color-error)' }}>
+                      ₹{parseFloat(r.refundAmount || '0').toLocaleString('en-IN')}
+                    </div>
+                  </div>
+
+                  {r.verificationStatus && (
+                    <div style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>
+                      Verification: <span className="badge badge-neutral">{r.verificationStatus}</span>
+                    </div>
+                  )}
+
+                  <div className="mobile-data-card-actions">
+                    <Link href={`/dashboard/return-refund/${encodeURIComponent(r.invoiceNumber)}`} className="btn btn-primary btn-sm" style={{ flex: 1, justifyContent: 'center', textDecoration: 'none' }}>
+                      Manage Ticket →
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── Desktop Table View ─────────────────────────────────────────── */}
+      <div className="desktop-only card" style={{ padding: 0, overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: 48, textAlign: 'center' }}>
             <LoadingGecko label="Loading return and refund records…" />
@@ -198,3 +255,4 @@ export default function ReturnRefundPage() {
     </div>
   );
 }
+

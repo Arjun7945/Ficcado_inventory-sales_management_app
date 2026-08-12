@@ -1,13 +1,13 @@
 'use client';
-/**
- * app/(app)/dashboard/profile/page.tsx
- * Admin self-service profile page — edit own name, phone, email, notifications.
- */
+
 import React, { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
+import MobileBackButton from '@/components/MobileBackButton';
 
 export default function ProfilePage() {
+  const router = useRouter();
   const [me, setMe]           = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
@@ -44,6 +44,11 @@ export default function ProfilePage() {
   }
 
   useEffect(() => { loadProfile(); }, []);
+
+  async function handleLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    router.replace('/login');
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -97,6 +102,8 @@ export default function ProfilePage() {
 
   return (
     <div style={{ maxWidth: 560, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <MobileBackButton />
+
       <div className="page-header">
         <div>
           <h1 className="page-title">My Profile</h1>
@@ -226,6 +233,22 @@ export default function ProfilePage() {
           </div>
         </form>
       )}
+
+      {/* ── Primary Dedicated Logout Card ──────────────────────────────── */}
+      <div className="card" style={{ padding: 18, border: '1px solid var(--color-error)' }}>
+        <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>Account Session</div>
+        <div style={{ fontSize: 12.5, color: 'var(--color-ink-muted)', marginBottom: 14 }}>
+          Log out of your Ficcado admin session on this device.
+        </div>
+        <button
+          onClick={handleLogout}
+          type="button"
+          className="btn btn-danger"
+          style={{ width: '100%', justifyContent: 'center', fontWeight: 700, padding: '10px 16px' }}
+        >
+          ↪ Log Out of Ficcado
+        </button>
+      </div>
     </div>
   );
 }

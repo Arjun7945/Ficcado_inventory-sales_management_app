@@ -14,6 +14,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
+import MobileBackButton from '@/components/MobileBackButton';
 import { calculateSaleTotalAmount } from '@/lib/salesPricing';
 
 interface Sale {
@@ -323,6 +324,8 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
 
   return (
     <div style={{ maxWidth: 840, margin: '0 auto', paddingBottom: 40 }}>
+      <MobileBackButton />
+
       {/* Page Header */}
       <div className="page-header">
         <div>

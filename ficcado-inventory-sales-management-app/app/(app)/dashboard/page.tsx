@@ -53,6 +53,7 @@ export default function DashboardPage() {
   const [salesLogs, setSalesLogs] = useState<SalesLogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'today' | 'overall'>('today');
+  const [unreadLogCount, setUnreadLogCount] = useState(0);
 
   useEffect(() => {
     Promise.all([
@@ -61,7 +62,17 @@ export default function DashboardPage() {
     ])
       .then(([statsData, logsData]) => {
         if (statsData.stats) setStats(statsData.stats);
-        if (logsData.logs) setSalesLogs(logsData.logs);
+        if (logsData.logs) {
+          setSalesLogs(logsData.logs);
+          // Calculate unread logs since last visit
+          const lastReadTime = localStorage.getItem('ficcado_last_read_sales_log_time');
+          if (lastReadTime) {
+            const count = logsData.logs.filter((l: SalesLogItem) => new Date(l.createdAt).getTime() > new Date(lastReadTime).getTime()).length;
+            setUnreadLogCount(count);
+          } else if (logsData.logs.length > 0) {
+            setUnreadLogCount(logsData.logs.length);
+          }
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -80,6 +91,59 @@ export default function DashboardPage() {
         <Link href="/dashboard/sales/new" className="btn btn-primary">
           + New Sale
         </Link>
+      </div>
+
+      {/* ── Mobile Navigation Hub Grid (Visible only on Mobile Viewports) ──────── */}
+      <div className="mobile-only" style={{ marginBottom: 20 }}>
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 600, marginBottom: 12 }}>
+          Quick Navigation
+        </h2>
+        <div className="mobile-nav-grid">
+          <Link href="/dashboard/sales" className="mobile-nav-card">
+            <span className="nav-card-icon" style={{ color: 'var(--color-brand-primary)' }}>◆</span>
+            <span className="nav-card-title">Sales</span>
+          </Link>
+          <Link href="/dashboard/replacement" className="mobile-nav-card">
+            <span className="nav-card-icon" style={{ color: 'var(--color-warning)' }}>⟳</span>
+            <span className="nav-card-title">Replacement</span>
+          </Link>
+          <Link href="/dashboard/return-refund" className="mobile-nav-card">
+            <span className="nav-card-icon" style={{ color: 'var(--color-error)' }}>↩</span>
+            <span className="nav-card-title">Return & Refund</span>
+          </Link>
+          <Link href="/dashboard/sales-log" className="mobile-nav-card">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+              <span className="nav-card-icon" style={{ color: 'var(--color-brand-primary)' }}>📋</span>
+              {unreadLogCount > 0 && (
+                <span style={{
+                  backgroundColor: 'var(--color-error)',
+                  color: '#fff',
+                  borderRadius: 10,
+                  padding: '2px 6px',
+                  fontSize: 10,
+                  fontWeight: 700,
+                }}>
+                  {unreadLogCount} NEW
+                </span>
+              )}
+            </div>
+            <span className="nav-card-title">Sales Log</span>
+          </Link>
+          <Link href="/dashboard/inventory-history" className="mobile-nav-card">
+            <span className="nav-card-icon" style={{ color: 'var(--color-success)' }}>📊</span>
+            <span className="nav-card-title">Stock History</span>
+          </Link>
+          <Link href="/dashboard/notes" className="mobile-nav-card">
+            <span className="nav-card-icon" style={{ color: 'var(--color-brand-primary)' }}>✎</span>
+            <span className="nav-card-title">Keep Notes</span>
+          </Link>
+          <Link href="/dashboard/profile" className="mobile-nav-card" style={{ gridColumn: 'span 2' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="nav-card-icon" style={{ color: 'var(--color-ink-muted)' }}>👤</span>
+              <span className="nav-card-title">My Profile & Settings</span>
+            </div>
+          </Link>
+        </div>
       </div>
 
       {/* A6: View Mode Dropdown Toggle */}
@@ -122,37 +186,55 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Module cards */}
-      <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600, marginBottom: 16 }}>
-        Modules
-      </h2>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14, marginBottom: 32 }}>
-        {MODULE_CARDS.map((card) => (
-          <Link key={card.href} href={card.href} style={{ textDecoration: 'none' }}>
-            <div
-              className="card"
-              style={{
-                cursor: 'pointer',
-                transition: 'box-shadow 0.15s, transform 0.15s',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 8,
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLDivElement).style.boxShadow = 'var(--shadow-md)';
-                (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-1px)';
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLDivElement).style.boxShadow = 'var(--shadow-sm)';
-                (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)';
-              }}
-            >
-              <div style={{ fontSize: 24, color: 'var(--color-brand-primary)' }}>{card.icon}</div>
-              <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15 }}>{card.label}</div>
-              <div style={{ fontSize: 12.5, color: 'var(--color-ink-muted)' }}>{card.description}</div>
+      {/* Desktop Modules Grid */}
+      <div className="desktop-only">
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600, marginBottom: 16 }}>
+          Modules
+        </h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14, marginBottom: 32 }}>
+          {MODULE_CARDS.map((card) => (
+            <Link key={card.href} href={card.href} style={{ textDecoration: 'none' }}>
+              <div
+                className="card"
+                style={{
+                  cursor: 'pointer',
+                  transition: 'box-shadow 0.15s, transform 0.15s',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLDivElement).style.boxShadow = 'var(--shadow-md)';
+                  (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLDivElement).style.boxShadow = 'var(--shadow-sm)';
+                  (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)';
+                }}
+              >
+                <div style={{ fontSize: 24, color: 'var(--color-brand-primary)' }}>{card.icon}</div>
+                <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15 }}>{card.label}</div>
+                <div style={{ fontSize: 12.5, color: 'var(--color-ink-muted)' }}>{card.description}</div>
+              </div>
+            </Link>
+          ))}
+        </div>
+      </div>
+
+      {/* Inventory History Summary Card */}
+      <div className="card" style={{ marginBottom: 20, padding: '14px 18px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 20, color: 'var(--color-success)' }}>📊</span>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>Inventory History & Stock Adjustments</div>
+              <div style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>Track all stock movements, manual adjustments & sales deductions</div>
             </div>
+          </div>
+          <Link href="/dashboard/inventory-history" className="btn btn-ghost btn-sm">
+            View History →
           </Link>
-        ))}
+        </div>
       </div>
 
       {/* B3.B: Latest Sales Log Feed Widget */}
@@ -160,6 +242,18 @@ export default function DashboardPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, borderBottom: '1px solid var(--color-border)', paddingBottom: 10 }}>
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span>📋</span> Latest Sales Activity Log
+            {unreadLogCount > 0 && (
+              <span style={{
+                backgroundColor: 'var(--color-error)',
+                color: '#fff',
+                borderRadius: 10,
+                padding: '2px 7px',
+                fontSize: 11,
+                fontWeight: 700,
+              }}>
+                {unreadLogCount} New
+              </span>
+            )}
           </h2>
           <Link href="/dashboard/sales-log" style={{ fontSize: 13, color: 'var(--color-brand-primary)', fontWeight: 600, textDecoration: 'none' }}>
             View Full Sales Log →

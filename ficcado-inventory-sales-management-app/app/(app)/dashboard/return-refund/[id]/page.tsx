@@ -19,6 +19,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
+import MobileBackButton from '@/components/MobileBackButton';
 import { calculateSaleTotalAmount } from '@/lib/salesPricing';
 
 interface PurchasedItemLine {
@@ -364,6 +365,8 @@ export default function ReturnRefundDetailPage({ params }: { params: Promise<{ i
 
   return (
     <div style={{ maxWidth: 880, margin: '0 auto', paddingBottom: 40 }}>
+      <MobileBackButton />
+
       {/* Page Header */}
       <div className="page-header" style={{ marginBottom: 20 }}>
         <div>

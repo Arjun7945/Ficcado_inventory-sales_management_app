@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
+import MobileBackButton from '@/components/MobileBackButton';
 
 interface ReplacementRecord {
   rowIndex:                            number;
@@ -105,6 +106,8 @@ export default function ReplacementPage() {
 
   return (
     <div>
+      <MobileBackButton />
+
       <div className="page-header" style={{ marginBottom: 20 }}>
         <div>
           <h1 className="page-title">Replacement Management</h1>
@@ -127,7 +130,60 @@ export default function ReplacementPage() {
         />
       </div>
 
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      {/* ── Mobile Card List View ────────────────────────────────────────── */}
+      <div className="mobile-only">
+        {loading ? (
+          <div className="card" style={{ padding: 36, textAlign: 'center' }}>
+            <LoadingGecko label="Loading replacement tickets…" />
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="card empty-state">
+            <div style={{ fontSize: 28 }}>⟳</div>
+            <div className="empty-state-title">No replacements found</div>
+          </div>
+        ) : (
+          <div className="mobile-card-list">
+            {filtered.map((r) => {
+              const isDone = r.invoiceStatus === 'Satisfied / Completed Order';
+              return (
+                <div key={r.invoiceNumber} className="mobile-data-card">
+                  <div className="mobile-data-card-header">
+                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--color-brand-primary)', fontSize: 14 }}>
+                      {r.invoiceNumber}
+                    </span>
+                    <span className={`badge ${isDone ? 'badge-success' : 'badge-warning'}`}>
+                      {r.invoiceStatus}
+                    </span>
+                  </div>
+
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>
+                    Original: {r.lastItems} ({r.lastSizes})
+                  </div>
+
+                  {r.removedItemFromLastPurchase && (
+                    <div style={{ fontSize: 12, color: 'var(--color-error)' }}>
+                      Exchanged Item: {r.removedItemFromLastPurchase} ({r.sizesOfRemovedItemFromLastPurchase})
+                    </div>
+                  )}
+
+                  <div style={{ fontSize: 12, color: 'var(--color-success)' }}>
+                    Replacement: {r.newItems || r.newFinalItemsSelected || 'Pending Selection'}
+                  </div>
+
+                  <div className="mobile-data-card-actions">
+                    <Link href={`/dashboard/replacement/${encodeURIComponent(r.invoiceNumber)}`} className="btn btn-primary btn-sm" style={{ flex: 1, justifyContent: 'center', textDecoration: 'none' }}>
+                      Manage / Update Stepper →
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── Desktop Table View ─────────────────────────────────────────── */}
+      <div className="desktop-only card" style={{ padding: 0, overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: 40 }}><LoadingGecko size="full" label="Loading replacements data…" /></div>
         ) : filtered.length === 0 ? (
@@ -213,3 +269,4 @@ export default function ReplacementPage() {
     </div>
   );
 }
+

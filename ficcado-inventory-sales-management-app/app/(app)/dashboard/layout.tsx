@@ -11,6 +11,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import AppSidebar from '@/components/AppSidebar';
+import MobileHeader from '@/components/MobileHeader';
 import LoadingGecko from '@/components/LoadingGecko';
 import SessionTimeoutModal from '@/components/SessionTimeoutModal';
 
@@ -56,6 +57,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         onLogout={handleLogout}
       />
       <main className="app-main">
+        <MobileHeader
+          adminName={admin.name}
+          onLogout={handleLogout}
+        />
         <div className="app-content">
           {children}
         </div>

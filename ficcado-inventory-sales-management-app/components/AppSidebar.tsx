@@ -39,6 +39,18 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'My Profile',        href: '/dashboard/profile',           icon: '👤' },
 ];
 
+/** In-scope navigation routes for mobile mode */
+const MOBILE_IN_SCOPE_HREFS = new Set([
+  '/dashboard',
+  '/dashboard/sales',
+  '/dashboard/replacement',
+  '/dashboard/return-refund',
+  '/dashboard/sales-log',
+  '/dashboard/inventory-history',
+  '/dashboard/notes',
+  '/dashboard/profile',
+]);
+
 interface OnlineAdmin {
   name:         string;
   lastActiveAt: string;
@@ -49,10 +61,29 @@ interface AppSidebarProps {
   adminName:  string;
   adminRole:  string;
   onLogout:   () => void;
+  isOpenMobile?: boolean;
+  onCloseMobile?: () => void;
 }
 
-export default function AppSidebar({ adminName, adminRole, onLogout }: AppSidebarProps) {
+export default function AppSidebar({ adminName, adminRole, onLogout, isOpenMobile, onCloseMobile }: AppSidebarProps) {
   const pathname = usePathname();
+
+  // Mobile viewport detection
+  const [isMobileScreen, setIsMobileScreen] = useState(false);
+
+  useEffect(() => {
+    function checkMobile() {
+      setIsMobileScreen(window.innerWidth <= 768);
+    }
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Filter items if on mobile
+  const visibleNavItems = isMobileScreen
+    ? NAV_ITEMS.filter((item) => MOBILE_IN_SCOPE_HREFS.has(item.href))
+    : NAV_ITEMS;
 
   // ── Online presence state ──────────────────────────────────────────────────
   const [showPresencePopover, setShowPresencePopover] = useState(false);
@@ -256,7 +287,7 @@ export default function AppSidebar({ adminName, adminRole, onLogout }: AppSideba
 
       {/* Navigation */}
       <nav style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
-        {NAV_ITEMS.map((item) => (
+        {visibleNavItems.map((item) => (
           <React.Fragment key={item.href}>
             {item.section && (
               <div className="nav-section-label">{item.section}</div>

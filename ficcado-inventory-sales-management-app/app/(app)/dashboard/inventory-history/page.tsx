@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
+import MobileBackButton from '@/components/MobileBackButton';
 
 interface HistoryRecord {
   rowIndex:             number;
@@ -78,6 +79,8 @@ export default function InventoryHistoryPage() {
 
   return (
     <div>
+      <MobileBackButton />
+
       <div className="page-header">
         <div>
           <h1 className="page-title">Inventory History Tracker</h1>
@@ -117,8 +120,49 @@ export default function InventoryHistoryPage() {
         </select>
       </div>
 
-      {/* Table */}
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      {/* ── Mobile Card List View ────────────────────────────────────────── */}
+      <div className="mobile-only">
+        {filtered.length === 0 ? (
+          <div className="card empty-state">
+            <div style={{ fontSize: 28 }}>📊</div>
+            <div className="empty-state-title">No stock history entries</div>
+          </div>
+        ) : (
+          <div className="mobile-card-list">
+            {filtered.map((h, i) => {
+              const changeNum = parseFloat(h.quantityChange) || 0;
+              const isPositive = changeNum > 0;
+              return (
+                <div key={i} className="mobile-data-card">
+                  <div className="mobile-data-card-header">
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>{h.itemName} ({h.size})</span>
+                    <span className={`badge ${isPositive ? 'badge-success' : 'badge-error'}`}>
+                      {h.quantityChange} piece(s)
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span className={`badge ${TRANSACTION_BADGE[h.transactionType] ?? 'badge-neutral'}`} style={{ fontSize: 11 }}>
+                      {h.transactionType}
+                    </span>
+                    {h.relatedInvoiceNumber && (
+                      <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--color-brand-primary)', fontSize: 12 }}>
+                        {h.relatedInvoiceNumber}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--color-ink-muted)', marginTop: 2, display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Resulting: {h.resultingBalance} pcs</span>
+                    <span>By {h.createdBy}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── Desktop Table View ─────────────────────────────────────────── */}
+      <div className="desktop-only card" style={{ padding: 0, overflow: 'hidden' }}>
         {filtered.length === 0 ? (
           <div className="empty-state">
             <div style={{ fontSize: 28 }}>📊</div>
