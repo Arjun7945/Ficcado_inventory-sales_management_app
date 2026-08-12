@@ -3,7 +3,8 @@
 /**
  * app/(app)/dashboard/admin/page.tsx
  * Admin Control Centre — full CRUD for admins, Sheet Configuration editing with test-connection,
- * reporting (on-demand XLSX download + email send), and daily report schedule config.
+ * reporting (on-demand XLSX download + email send), daily report schedule config,
+ * and Email Configuration management (Part 6 B1).
  */
 
 import React, { useEffect, useState } from 'react';
@@ -45,7 +46,7 @@ const REPORT_MODULES = [
 ];
 
 export default function AdminControlPage() {
-  const [activeTab, setActiveTab] = useState<'admins' | 'sheets' | 'reports'>('admins');
+  const [activeTab, setActiveTab] = useState<'admins' | 'sheets' | 'reports' | 'email'>('admins');
   const [admins, setAdmins]       = useState<AdminUser[]>([]);
   const [sheets, setSheets]       = useState<SheetConfigEntry[]>([]);
   const [loading, setLoading]     = useState(true);
@@ -126,6 +127,31 @@ export default function AdminControlPage() {
   const [reportTo, setReportTo]                     = useState('');
   const [sendTestEmail, setSendTestEmail]           = useState(false);
 
+  // Email Configuration State (Part 6 B1)
+  const [currentSenderAddress, setCurrentSenderAddress] = useState<string | null>(null);
+  const [hasEmailPassword, setHasEmailPassword]         = useState(false);
+  const [showEmailConfigModal, setShowEmailConfigModal] = useState(false);
+  const [emailNewAddress, setEmailNewAddress]           = useState('');
+  const [emailNewPassword, setEmailNewPassword]         = useState('');
+  const [confirmOverwrite, setConfirmOverwrite]         = useState(false);
+  const [expandGmailGuide, setExpandGmailGuide]         = useState(false);
+  const [emailSaving, setEmailSaving]                   = useState(false);
+  const [emailFormError, setEmailFormError]             = useState<string | null>(null);
+  const [emailFormSuccess, setEmailFormSuccess]         = useState<string | null>(null);
+
+  async function loadEmailConfig() {
+    try {
+      const res  = await fetch('/api/setup/email-config');
+      const data = await res.json();
+      if (res.ok) {
+        setCurrentSenderAddress(data.senderAddress);
+        setHasEmailPassword(data.hasPassword);
+      }
+    } catch {
+      // Non-critical; email config display degrades gracefully
+    }
+  }
+
   async function loadData() {
     setLoading(true);
     try {
@@ -142,7 +168,7 @@ export default function AdminControlPage() {
     }
   }
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); loadEmailConfig(); }, []);
 
   async function handleCreateAdmin(e: React.FormEvent) {
     e.preventDefault();
@@ -296,9 +322,9 @@ export default function AdminControlPage() {
 
       {/* Tabs */}
       <div className="tab-list">
-        {(['admins', 'sheets', 'reports'] as const).map((tab) => (
+        {(['admins', 'sheets', 'reports', 'email'] as const).map((tab) => (
           <div key={tab} className={`tab-item ${activeTab === tab ? 'active' : ''}`} onClick={() => setActiveTab(tab)}>
-            {tab === 'admins' ? `Admin Accounts (${admins.length})` : tab === 'sheets' ? `Sheet Config (${sheets.length})` : '📊 Reports'}
+            {tab === 'admins' ? `Admin Accounts (${admins.length})` : tab === 'sheets' ? `Sheet Config (${sheets.length})` : tab === 'email' ? '✉ Email Config' : '📊 Reports'}
           </div>
         ))}
       </div>
@@ -496,6 +522,224 @@ export default function AdminControlPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* EMAIL CONFIG TAB (Part 6 B1) */}
+      {activeTab === 'email' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {emailFormError   && <ErrorMessage message={emailFormError}   variant="error"   onDismiss={() => setEmailFormError(null)} />}
+          {emailFormSuccess && <ErrorMessage message={emailFormSuccess} variant="success" onDismiss={() => setEmailFormSuccess(null)} />}
+
+          {/* Current Config Card */}
+          <div className="card">
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, marginBottom: 8 }}>
+                  Gmail Sending Configuration
+                </h2>
+                <div style={{ fontSize: 13, color: 'var(--color-ink-muted)', marginBottom: 12 }}>
+                  The Gmail address used to send order confirmation emails and reports to customers and admins.
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-ink-muted)', letterSpacing: '0.06em', minWidth: 120 }}>Sender Address</span>
+                    {currentSenderAddress ? (
+                      <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--color-ink)' }}>{currentSenderAddress}</span>
+                    ) : (
+                      <span className="badge badge-warning">Not configured</span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-ink-muted)', letterSpacing: '0.06em', minWidth: 120 }}>App Password</span>
+                    {hasEmailPassword ? (
+                      <span className="badge badge-success">✓ Password on file (not displayed for security)</span>
+                    ) : (
+                      <span className="badge badge-warning">No password stored</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  setEmailNewAddress('');
+                  setEmailNewPassword('');
+                  setConfirmOverwrite(false);
+                  setExpandGmailGuide(false);
+                  setEmailFormError(null);
+                  setEmailFormSuccess(null);
+                  setShowEmailConfigModal(true);
+                }}
+              >
+                ✎ Update Email Configuration
+              </button>
+            </div>
+          </div>
+
+          {/* Update Email Config Modal */}
+          {showEmailConfigModal && (
+            <div className="modal-backdrop" onClick={() => setShowEmailConfigModal(false)}>
+              <div
+                className="modal"
+                style={{ maxWidth: 560 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="modal-header">
+                  <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18 }}>Update Email Configuration</h2>
+                  <button className="btn-icon" onClick={() => setShowEmailConfigModal(false)}>×</button>
+                </div>
+
+                <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {emailFormError   && <ErrorMessage message={emailFormError}   variant="error"   onDismiss={() => setEmailFormError(null)} />}
+                  {emailFormSuccess && <ErrorMessage message={emailFormSuccess} variant="success" onDismiss={() => setEmailFormSuccess(null)} />}
+
+                  {/* Overwrite warning */}
+                  <div style={{
+                    background: 'rgba(184,134,43,0.10)',
+                    border: '1px solid rgba(184,134,43,0.40)',
+                    borderRadius: 8,
+                    padding: '12px 14px',
+                    fontSize: 13,
+                    color: '#7a5a18',
+                  }}>
+                    <strong>⚠ Warning:</strong> Updating this will permanently delete the current app password. You&apos;ll need to generate a new one for the new email address if you haven&apos;t already.
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">New Gmail Sender Address *</label>
+                    <input
+                      type="email"
+                      className="form-input"
+                      placeholder="e.g. yourstore@gmail.com"
+                      value={emailNewAddress}
+                      onChange={(e) => setEmailNewAddress(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">New Gmail App Password * <span style={{ fontWeight: 400, color: 'var(--color-ink-muted)', textTransform: 'none' }}>(16-character, not your regular Gmail password)</span></label>
+                    <input
+                      type="password"
+                      className="form-input"
+                      placeholder="Paste the 16-character app password here"
+                      value={emailNewPassword}
+                      onChange={(e) => setEmailNewPassword(e.target.value)}
+                    />
+                  </div>
+
+                  {/* In-app Gmail App Password Guide */}
+                  <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
+                    <button
+                      type="button"
+                      onClick={() => setExpandGmailGuide((v) => !v)}
+                      style={{
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '10px 14px',
+                        background: 'var(--color-bg)',
+                        border: 'none',
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                        fontSize: 13,
+                        color: 'var(--color-brand-primary)',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <span>🔐 How do I get a Gmail App Password?</span>
+                      <span style={{ fontSize: 11 }}>{expandGmailGuide ? '▲ Hide' : '▼ Show'}</span>
+                    </button>
+                    {expandGmailGuide && (
+                      <div style={{ padding: '12px 16px', background: '#fff', borderTop: '1px solid var(--color-border)' }}>
+                        <ol style={{ fontSize: 13, color: 'var(--color-ink)', lineHeight: 1.8, paddingLeft: 18, margin: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <li>Sign in to the <strong>Gmail account</strong> you want to send emails from.</li>
+                          <li>Go to your <strong>Google Account → Security</strong> settings and turn on <strong>2-Step Verification</strong> if it isn&apos;t already on (you&apos;ll need a phone number to confirm).</li>
+                          <li>Once 2-Step Verification is on, search <strong>&quot;App Passwords&quot;</strong> in your Google Account settings to find the App Passwords page.</li>
+                          <li>Click <strong>Create a new app password</strong> and give it a name like <em>&quot;Ficcado App&quot;</em>.</li>
+                          <li>Google will show a <strong>16-character password</strong> — copy it immediately since it can&apos;t be viewed again later (you can only regenerate a new one).</li>
+                          <li>Paste that 16-character password into the <em>App Password</em> field above, along with the Gmail address it belongs to.</li>
+                        </ol>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Explicit confirmation checkbox */}
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={confirmOverwrite}
+                      onChange={(e) => setConfirmOverwrite(e.target.checked)}
+                      style={{ marginTop: 2, flexShrink: 0 }}
+                    />
+                    <span>I understand this will permanently overwrite the existing app password, and I have a valid new app password ready to save.</span>
+                  </label>
+                </div>
+
+                <div className="modal-footer">
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => setShowEmailConfigModal(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={emailSaving || !confirmOverwrite}
+                    onClick={async () => {
+                      setEmailFormError(null);
+                      setEmailFormSuccess(null);
+
+                      if (!emailNewAddress.trim() || !emailNewPassword.trim()) {
+                        setEmailFormError('Both the new email address and app password are required.');
+                        return;
+                      }
+                      if (!confirmOverwrite) {
+                        setEmailFormError('Please confirm you understand the old password will be permanently overwritten.');
+                        return;
+                      }
+
+                      setEmailSaving(true);
+                      try {
+                        const res  = await fetch('/api/setup/email-config', {
+                          method:  'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body:    JSON.stringify({
+                            senderAddress: emailNewAddress.trim(),
+                            appPassword:   emailNewPassword.trim(),
+                            testSend:      true,
+                          }),
+                        });
+                        const data = await res.json();
+
+                        if (!res.ok) {
+                          setEmailFormError(data.error || 'Failed to update email configuration.');
+                          return;
+                        }
+
+                        setEmailFormSuccess(data.message || 'Email configuration updated successfully.');
+                        setCurrentSenderAddress(emailNewAddress.trim());
+                        setHasEmailPassword(true);
+                        setShowEmailConfigModal(false);
+                        setSuccess('Email configuration updated and connection verified.');
+                      } catch {
+                        setEmailFormError("Couldn't connect to server. Please try again.");
+                      } finally {
+                        setEmailSaving(false);
+                      }
+                    }}
+                  >
+                    {emailSaving
+                      ? <LoadingGecko size="inline" label="Testing & Saving…" />
+                      : '✓ Test Connection & Save'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

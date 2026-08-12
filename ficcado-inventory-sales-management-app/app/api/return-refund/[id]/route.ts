@@ -13,10 +13,11 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   try { await requireAuth(); } catch (e) { if (e instanceof Response) return e; return Response.json({ error: 'Auth required.' }, { status: 401 }); }
 
   try {
-    const [retRows, sRows, adminRows] = await Promise.all([
+    const [retRows, sRows, adminRows, wRows] = await Promise.all([
       readAllRows('return_refund'),
       readAllRows('sales'),
       readAllRows('admin_info'),
+      readAllRows('warehouse'),
     ]);
 
     if (retRows.length === 0) return Response.json({ error: 'Return/refund record not found.' }, { status: 404 });
@@ -72,7 +73,25 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       };
     }
 
-    const admins = adminRows.slice(1).map((a) => (a[1] ?? '').trim()).filter(Boolean);
+    const allHandlersMap = new Map<string, string>();
+    if (wRows.length > 0) {
+      const wMap = buildHeaderMap(wRows[0]);
+      wRows.slice(1).forEach((row) => {
+        const handler = getCellByHeader(row, wMap, 'Handler Name').trim();
+        if (handler && !allHandlersMap.has(handler.toLowerCase())) {
+          allHandlersMap.set(handler.toLowerCase(), handler);
+        }
+      });
+    }
+
+    const registeredAdmins = adminRows.slice(1).map((a) => (a[1] ?? '').trim()).filter(Boolean);
+    registeredAdmins.forEach((adm) => {
+      if (!allHandlersMap.has(adm.toLowerCase())) {
+        allHandlersMap.set(adm.toLowerCase(), adm);
+      }
+    });
+
+    const handlersList = Array.from(allHandlersMap.values());
 
     return Response.json({
       record: {
@@ -103,8 +122,10 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
         version:            getCellByHeader(r, retMap, 'Version', '1'),
       },
       saleDetails,
-      admins,
+      admins: handlersList,
+      handlers: handlersList,
     });
+
   } catch (err) { return Response.json({ error: 'Failed to load return/refund details.', detail: (err as Error).message }, { status: 500 }); }
 }
 

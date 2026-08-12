@@ -704,7 +704,7 @@ export default function ReturnRefundDetailPage({ params }: { params: Promise<{ i
                             >
                               <option value="Inventory Only">Unassigned Main Inventory</option>
                               {Array.from(new Set(admins)).map((adm) => (
-                                <option key={adm} value={adm}>Handler Admin Warehouse: {adm}</option>
+                                <option key={adm} value={adm}>Handler Warehouse: {adm}</option>
                               ))}
                             </select>
                           </div>

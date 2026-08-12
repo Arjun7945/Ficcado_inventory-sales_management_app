@@ -6,37 +6,23 @@
  *  - generateInvoicePdf() from lib/invoiceGenerator (same function as PDF download — never duplicated)
  *  - Nodemailer with Gmail SMTP config from AppMeta (same as send-report route)
  *
- * Error responses are specific per failure type (no email, SMTP failure, missing config).
+ * Part 6.1 C1: Dynamic two-state order confirmation email templates:
+ *  - Template B (After Order Completed): Used ONLY when Sale Status = 'Purchase Satisfied & Order Completed',
+ *    Delivery Status = 'Order Delivered Successfully', and Payment Status = 'Paid'.
+ *  - Template A (Before Order Complete): Used in EVERY OTHER CASE (including mixed/partial states).
+ *
+ * Part 6.1 D2: Cash payment mode always displays as "Cash" (not "N/A"), with Transaction ID conditionally omitted.
  */
 
 import { requireAuth } from '@/lib/auth';
 import { readAllRows } from '@/lib/google/moduleSheet';
+import { buildHeaderMap, getCellByHeader } from '@/lib/google/headerUtils';
 import { getAppMeta, decryptValue } from '@/lib/google/appMeta';
 import { generateInvoicePdf, type InvoiceSaleData } from '@/lib/invoiceGenerator';
 import { logActivity } from '@/lib/activityLogger';
 import nodemailer from 'nodemailer';
 
 export const dynamic = 'force-dynamic';
-
-const COL = {
-  invoiceNumber:        1,
-  customerName:         3,
-  customerPhone:        4,
-  customerAddress:      5,
-  totalItems:           6,
-  itemNames:            7,
-  sizes:                8,
-  itemPrices:           9,
-  totalAmount:          10,
-  paymentStatus:        11,
-  modeOfPayment:        12,
-  transactionId:        13,
-  createdAt:            14,
-  deliveryChargeToggle: 20,
-  deliveryChargeAmount: 21,
-  discount:             25,
-  customerEmail:        26,
-};
 
 async function getEmailConfig() {
   const [sender, encryptedPass] = await Promise.all([
@@ -68,18 +54,23 @@ export async function POST(
   }
 
   try {
-    // 1. Load the sale row
+    // 1. Load the sales sheet and find matching row using position-independent header mapping
     const salesRows = await readAllRows('sales');
-    const match = salesRows.slice(1).find((r) => r[COL.invoiceNumber] === invoiceNumber);
+    if (salesRows.length === 0) {
+      return Response.json({ error: `No sale found with invoice number '${invoiceNumber}'.` }, { status: 404 });
+    }
 
-    if (!match) {
+    const headerMap = buildHeaderMap(salesRows[0]);
+    const matchRow = salesRows.slice(1).find((r) => getCellByHeader(r, headerMap, 'Invoice Number') === invoiceNumber);
+
+    if (!matchRow) {
       return Response.json(
         { error: `No sale found with invoice number '${invoiceNumber}'.` },
         { status: 404 }
       );
     }
 
-    const customerEmail = (match[COL.customerEmail] ?? '').trim();
+    const customerEmail  = getCellByHeader(matchRow, headerMap, 'Customer Email').trim();
 
     // 2. Guard: no email on file
     if (!customerEmail) {
@@ -92,24 +83,33 @@ export async function POST(
       );
     }
 
+    const saleStatus      = getCellByHeader(matchRow, headerMap, 'Sale Status');
+    const deliveryStatus  = getCellByHeader(matchRow, headerMap, 'Delivery Status', 'Packed & Ready for Shipment');
+    const paymentStatus   = getCellByHeader(matchRow, headerMap, 'Payment Status');
+    const rawModeOfPayment = getCellByHeader(matchRow, headerMap, 'Mode of Payment');
+    const transactionId   = getCellByHeader(matchRow, headerMap, 'Transaction ID');
+
+    // D2 Fix: Mode of payment should display the actual mode (e.g. Cash, UPI, Card), falling back to Cash if empty/N/A
+    const modeOfPayment = (rawModeOfPayment && rawModeOfPayment !== 'N/A') ? rawModeOfPayment : 'Cash';
+
     const saleData: InvoiceSaleData = {
-      invoiceNumber:        match[COL.invoiceNumber]        ?? invoiceNumber,
-      customerName:         match[COL.customerName]         ?? '',
-      customerPhone:        match[COL.customerPhone]        ?? '',
-      customerAddress:      match[COL.customerAddress]      ?? '',
+      invoiceNumber:        getCellByHeader(matchRow, headerMap, 'Invoice Number') || invoiceNumber,
+      customerName:         getCellByHeader(matchRow, headerMap, 'Customer Name'),
+      customerPhone:        getCellByHeader(matchRow, headerMap, 'Customer Phone Number'),
+      customerAddress:      getCellByHeader(matchRow, headerMap, 'Customer Address'),
       customerEmail,
-      itemNames:            match[COL.itemNames]            ?? '',
-      sizes:                match[COL.sizes]                ?? '',
-      itemPrices:           match[COL.itemPrices]           ?? '',
-      totalItems:           match[COL.totalItems]           ?? '1',
-      totalAmount:          match[COL.totalAmount]          ?? '0',
-      discount:             parseFloat(match[COL.discount]  ?? '0') || 0,
-      deliveryChargeToggle: match[COL.deliveryChargeToggle] === 'true',
-      deliveryChargeAmount: parseFloat(match[COL.deliveryChargeAmount] ?? '0') || 0,
-      paymentStatus:        match[COL.paymentStatus]        ?? '',
-      modeOfPayment:        match[COL.modeOfPayment]        ?? '',
-      transactionId:        match[COL.transactionId]        ?? '',
-      createdAt:            match[COL.createdAt]            ?? '',
+      itemNames:            getCellByHeader(matchRow, headerMap, 'Item(s) Name(s)'),
+      sizes:                getCellByHeader(matchRow, headerMap, 'Size(s) Chosen'),
+      itemPrices:           getCellByHeader(matchRow, headerMap, 'Item Prices'),
+      totalItems:           getCellByHeader(matchRow, headerMap, 'Total Number of Items Purchased', '1'),
+      totalAmount:          getCellByHeader(matchRow, headerMap, 'Total Amount', '0'),
+      discount:             parseFloat(getCellByHeader(matchRow, headerMap, 'Discount', '0')) || 0,
+      deliveryChargeToggle: getCellByHeader(matchRow, headerMap, 'Delivery Charge Toggle') === 'true',
+      deliveryChargeAmount: parseFloat(getCellByHeader(matchRow, headerMap, 'Delivery Charge Amount', '0')) || 0,
+      paymentStatus,
+      modeOfPayment,
+      transactionId,
+      createdAt:            getCellByHeader(matchRow, headerMap, 'Created At'),
     };
 
     // 3. Generate the invoice PDF (same function as download route — not duplicated)
@@ -119,8 +119,8 @@ export async function POST(
     const { sender, pass } = await getEmailConfig();
 
     // 5. Parse line items & prices for professional table layout
-    const names = saleData.itemNames.split(',').map((n) => n.trim()).filter(Boolean);
-    const sizes = saleData.sizes.split(',').map((s) => s.trim()).filter(Boolean);
+    const names  = saleData.itemNames.split(',').map((n) => n.trim()).filter(Boolean);
+    const sizes  = saleData.sizes.split(',').map((s) => s.trim()).filter(Boolean);
     const prices = (saleData.itemPrices || '').split(',').map((p) => parseFloat(p.trim()) || 0);
 
     const itemsMap = new Map<string, { item: string; size: string; qty: number; unitPrice: number }>();
@@ -137,11 +137,11 @@ export async function POST(
     }
     const lineItems = Array.from(itemsMap.values());
 
-    const grandTotalVal = parseFloat(saleData.totalAmount) || 0;
-    const discountVal = saleData.discount || 0;
+    const grandTotalVal  = parseFloat(saleData.totalAmount) || 0;
+    const discountVal    = saleData.discount || 0;
     const delivChargeVal = saleData.deliveryChargeToggle ? saleData.deliveryChargeAmount : 0;
     const rawItemsSubtotal = lineItems.reduce((sum, item) => sum + (item.qty * item.unitPrice), 0);
-    const itemsSubtotal = rawItemsSubtotal > 0 ? rawItemsSubtotal : (grandTotalVal - delivChargeVal + discountVal);
+    const itemsSubtotal  = rawItemsSubtotal > 0 ? rawItemsSubtotal : (grandTotalVal - delivChargeVal + discountVal);
 
     // Table rows HTML
     const tableRowsHtml = lineItems.map((li) => {
@@ -173,6 +173,40 @@ export async function POST(
       </tr>
     ` : '';
 
+    // ── Part 6.1 C1: Two-State Email Template Selection Engine ──────────────
+    const isCompletedSaleStatus =
+      saleStatus.toLowerCase().includes('satisfied') ||
+      saleStatus === 'Purchase Satisfied & Order Completed' ||
+      saleStatus === 'Purchase Satisfied and Order Completed';
+    const isDelivered = deliveryStatus === 'Order Delivered Successfully';
+    const isPaid = paymentStatus === 'Paid';
+
+    // Template B is chosen ONLY when ALL THREE conditions are true at click time
+    const isTemplateB = isCompletedSaleStatus && isDelivered && isPaid;
+
+    const templateMessageHtml = isTemplateB ? `
+      <p style="font-size: 15px; margin-bottom: 16px;">Hi <strong>${saleData.customerName}</strong>,</p>
+      <p style="font-size: 14px; color: #444; line-height: 1.6; margin-bottom: 14px;">We're delighted to let you know that your order <strong>${invoiceNumber}</strong> has been successfully delivered and completed! 🎉</p>
+      <p style="font-size: 14px; color: #444; line-height: 1.6; margin-bottom: 14px;">We hope you've received your order safely and are enjoying your new Ficcado Clothing pieces. ❤️</p>
+      <p style="font-size: 14px; color: #444; line-height: 1.6; margin-bottom: 14px;">We also confirm that your payment has been successfully received. Thank you for choosing Ficcado Clothing and for being a valued part of our journey.</p>
+      <p style="font-size: 14px; color: #444; line-height: 1.6; margin-bottom: 14px;">We'd love to see you shop with us again! ✨ If you enjoyed your purchase, we'd truly appreciate your continued support and look forward to bringing you more exciting styles and collections.</p>
+      <p style="font-size: 14px; color: #444; line-height: 1.6; margin-bottom: 20px;">Thank you once again for shopping with Ficcado Clothing. We hope to serve you again soon!</p>
+    ` : `
+      <p style="font-size: 15px; margin-bottom: 16px;">Hi <strong>${saleData.customerName}</strong>,</p>
+      <p style="font-size: 14px; color: #444; line-height: 1.6; margin-bottom: 14px;">Thank you for shopping with Ficcado Clothing! 🎉 We're happy to let you know that we have successfully received your order <strong>${invoiceNumber}</strong>, and our team is currently preparing it for shipment. 📦</p>
+      <p style="font-size: 14px; color: #444; line-height: 1.6; margin-bottom: 14px;">We can't wait for you to receive your order and enjoy your new Ficcado pieces! We truly appreciate your support and look forward to serving you again. ❤️</p>
+      <div style="background-color: #F4F7FC; border-left: 4px solid #2B62C6; padding: 12px 16px; margin: 16px 0; border-radius: 6px;">
+        <p style="font-size: 14px; margin: 0 0 6px 0; font-weight: 700; color: #2B62C6;">Want to add more items to your order?</p>
+        <p style="font-size: 13px; color: #444; margin: 0; line-height: 1.5;">If you'd like to add any additional products before your order is shipped, simply reply to this email or contact us at <strong>+91 94971 44795</strong>. We'll be happy to assist you with upgrading your order.</p>
+      </div>
+      <p style="font-size: 14px; color: #444; line-height: 1.6; margin-bottom: 20px;">Thank you once again for choosing Ficcado Clothing. We look forward to having you shop with us again!</p>
+    `;
+
+    // Part 6.1 D2: Payment details formatting (Mode of payment always shown; Txn ID omitted for Cash)
+    const displayTxnString = (modeOfPayment !== 'Cash' && transactionId && transactionId !== 'N/A')
+      ? ` — Txn ID: ${transactionId}`
+      : '';
+
     const htmlBody = `
       <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #F4F0E5; padding: 30px; color: #22261E;">
         <div style="max-width: 600px; margin: 0 auto; background: #FFFFFF; border-radius: 10px; padding: 28px; border: 1px solid #E2DCC9;">
@@ -181,8 +215,7 @@ export async function POST(
             <p style="margin: 4px 0 0 0; color: #6B6A5E; font-size: 13px;">Official Order Confirmation & Invoice</p>
           </div>
 
-          <p style="font-size: 15px; margin-bottom: 16px;">Hi <strong>${saleData.customerName}</strong>,</p>
-          <p style="font-size: 14px; color: #444; line-height: 1.5;">Thank you for shopping with Ficcado Clothing! 🎉 We have received your order <strong>${invoiceNumber}</strong> and it is being prepared for shipment.</p>
+          ${templateMessageHtml}
 
           <div style="margin: 24px 0;">
             <h3 style="font-size: 15px; color: #2B62C6; margin-bottom: 10px;">Purchased Items</h3>
@@ -213,13 +246,13 @@ export async function POST(
           </div>
 
           <div style="background-color: #F9F8F5; border-radius: 8px; padding: 14px; margin-bottom: 20px; font-size: 13px;">
-            <p style="margin: 0 0 6px 0;"><strong>Payment Status:</strong> ${saleData.paymentStatus} (${saleData.modeOfPayment})</p>
+            <p style="margin: 0 0 6px 0;"><strong>Payment Status:</strong> ${isPaid ? `${saleData.paymentStatus} (${modeOfPayment}${displayTxnString})` : (saleData.paymentStatus || 'Not Paid')}</p>
             <p style="margin: 0;"><strong>Delivery Address:</strong> ${saleData.customerAddress}</p>
           </div>
 
           <p style="font-size: 13px; color: #6B6A5E; margin-bottom: 20px;">A PDF copy of your invoice is attached to this email for your accounting and purchase records.</p>
 
-          <div style="border-top: 1px solid #E2DCC9; paddingTop: 14px; text-align: center; font-size: 12px; color: #6B6A5E;">
+          <div style="border-top: 1px solid #E2DCC9; padding-top: 14px; text-align: center; font-size: 12px; color: #6B6A5E;">
             <p style="margin: 0;">Warm regards,<br><strong>The Ficcado Team</strong><br><a href="https://www.ficcado.store" style="color: #2B62C6; text-decoration: none;">www.ficcado.store</a></p>
           </div>
         </div>
@@ -248,7 +281,7 @@ export async function POST(
     });
 
     // Log Activity for Confirmation Email Send
-    const logMsg = `Administrator '${admin.name}' successfully sent an official order confirmation email with attached PDF invoice '${invoiceNumber}' to customer '${saleData.customerName}' (${customerEmail}) containing ${saleData.itemNames || 'purchased items'} (Grand Total: ₹${saleData.totalAmount}) on ${new Date().toLocaleString('en-IN')}.`;
+    const logMsg = `Administrator '${admin.name}' successfully sent Template ${isTemplateB ? 'B (After Order Completed)' : 'A (Before Order Complete)'} confirmation email with attached PDF invoice '${invoiceNumber}' to customer '${saleData.customerName}' (${customerEmail}) on ${new Date().toLocaleString('en-IN')}.`;
 
     logActivity({
       adminName: admin.name,
@@ -261,8 +294,9 @@ export async function POST(
 
     return Response.json({
       success: true,
-      message: `Confirmation email sent to ${customerEmail}.`,
+      message: `Confirmation email (Template ${isTemplateB ? 'B' : 'A'}) sent to ${customerEmail}.`,
       sentTo:  customerEmail,
+      templateUsed: isTemplateB ? 'B' : 'A',
     });
   } catch (err) {
     const message = (err as Error).message ?? 'Unknown error';

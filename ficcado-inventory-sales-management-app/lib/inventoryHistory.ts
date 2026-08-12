@@ -14,6 +14,7 @@ export interface InventoryHistoryRecord {
   affectedSheet:        'Inventory' | 'Warehouse';
   handler?:             string; // Admin name if Warehouse, blank if Inventory
   transactionType:      | 'Sale Deduction'
+                        | 'Sale Addition'
                         | 'Replacement — Old Item Restock'
                         | 'Replacement — New Item Deduction'
                         | 'Refund Restock'

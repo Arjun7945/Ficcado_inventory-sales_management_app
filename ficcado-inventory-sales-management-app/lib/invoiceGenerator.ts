@@ -88,11 +88,14 @@ function buildLineItems(itemNames: string, sizes: string, itemPrices?: string): 
 export async function generateInvoicePdf(sale: InvoiceSaleData): Promise<Buffer> {
   return new Promise<Buffer>((resolve, reject) => {
     // Read background template image into Node Buffer
-    const templatePath = path.join(process.cwd(), 'assets', 'invoice', 'ficcado_invoice_page.png');
+    const publicTemplatePath = path.join(process.cwd(), 'public', 'assets', 'invoice', 'ficcado_invoice_page.png');
+    const rootTemplatePath   = path.join(process.cwd(), 'assets', 'invoice', 'ficcado_invoice_page.png');
     let templateBuffer: Buffer | null = null;
     try {
-      if (fs.existsSync(templatePath)) {
-        templateBuffer = fs.readFileSync(templatePath);
+      if (fs.existsSync(publicTemplatePath)) {
+        templateBuffer = fs.readFileSync(publicTemplatePath);
+      } else if (fs.existsSync(rootTemplatePath)) {
+        templateBuffer = fs.readFileSync(rootTemplatePath);
       }
     } catch (e) {
       console.warn('[invoiceGenerator] Template image read notice:', e);
@@ -368,17 +371,21 @@ export async function generateInvoicePdf(sale: InvoiceSaleData): Promise<Buffer>
       .fillColor(statusColor)
       .text(sale.paymentStatus || 'Not Paid', pColX.status, pValY);
 
+    const isPaid = sale.paymentStatus === 'Paid';
+    const displayMode = isPaid ? ((sale.modeOfPayment && sale.modeOfPayment !== 'N/A') ? sale.modeOfPayment : 'Cash') : 'N/A';
+    const displayTxn  = (isPaid && displayMode !== 'Cash' && sale.transactionId && sale.transactionId !== 'N/A') ? sale.transactionId : 'N/A';
+
     doc
       .font('Helvetica')
       .fontSize(10)
       .fillColor(INK)
-      .text(sale.modeOfPayment || 'N/A', pColX.mode, pValY);
+      .text(displayMode, pColX.mode, pValY);
 
     doc
       .font('Helvetica')
       .fontSize(10)
       .fillColor(INK_MUTED)
-      .text(sale.transactionId || 'N/A', pColX.ref, pValY);
+      .text(displayTxn, pColX.ref, pValY);
 
     doc.end();
   });

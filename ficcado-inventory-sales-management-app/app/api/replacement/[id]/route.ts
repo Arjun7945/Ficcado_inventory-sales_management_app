@@ -68,19 +68,34 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     }
 
     const warehouseStock: { handler: string; location: string; itemName: string; size: string; qty: number }[] = [];
+    const allHandlersMap = new Map<string, string>();
+
     if (wRows.length > 0) {
       const wMap = buildHeaderMap(wRows[0]);
       wRows.slice(1).forEach((row) => {
-        const handler  = getCellByHeader(row, wMap, 'Handler Name');
-        const location = getCellByHeader(row, wMap, 'Warehouse Location');
-        const itemName = getCellByHeader(row, wMap, 'Item Name');
-        const size     = getCellByHeader(row, wMap, 'Size');
+        const handler  = getCellByHeader(row, wMap, 'Handler Name').trim();
+        const location = getCellByHeader(row, wMap, 'Warehouse Location').trim();
+        const itemName = getCellByHeader(row, wMap, 'Item Name').trim();
+        const size     = getCellByHeader(row, wMap, 'Size').trim();
         const qty      = parseInt(getCellByHeader(row, wMap, 'Quantity', '0'), 10) || 0;
+        if (handler) {
+          if (!allHandlersMap.has(handler.toLowerCase())) {
+            allHandlersMap.set(handler.toLowerCase(), handler);
+          }
+        }
         if (handler && itemName && qty > 0) warehouseStock.push({ handler, location, itemName, size, qty });
       });
     }
 
-    const admins = adminRows.slice(1).map((a) => (a[1] ?? '').trim()).filter(Boolean);
+    const registeredAdmins = adminRows.slice(1).map((a) => (a[1] ?? '').trim()).filter(Boolean);
+    registeredAdmins.forEach((adm) => {
+      if (!allHandlersMap.has(adm.toLowerCase())) {
+        allHandlersMap.set(adm.toLowerCase(), adm);
+      }
+    });
+
+    const handlersList = Array.from(allHandlersMap.values());
+
 
     return Response.json({
       replacement: {
@@ -112,7 +127,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       saleDetails,
       availableInventory,
       warehouseStock,
-      admins,
+      admins: handlersList,
+      handlers: handlersList,
     });
   } catch (err) { return Response.json({ error: 'Failed to load replacement details.', detail: (err as Error).message }, { status: 500 }); }
 }

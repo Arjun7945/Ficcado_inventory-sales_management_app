@@ -344,10 +344,20 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
   useEffect(() => { loadDetails(); }, [invoiceNumber]);
 
   function toggleOldItemIndex(idx: number) {
-    if (selectedOldIndices.includes(idx)) {
-      setSelectedOldIndices(selectedOldIndices.filter((i) => i !== idx));
-    } else {
-      setSelectedOldIndices([...selectedOldIndices, idx]);
+    const isCurrentlyChecked = selectedOldIndices.includes(idx);
+    const newIndices = isCurrentlyChecked
+      ? selectedOldIndices.filter((i) => i !== idx)
+      : [...selectedOldIndices, idx];
+
+    setSelectedOldIndices(newIndices);
+
+    // A1 Progressive Disclosure: if all Step 1 items are now unchecked,
+    // clear Steps 2–4 selections to prevent stale data resurrection
+    if (newIndices.length === 0) {
+      setSelectedNewItems([]);
+      setNewStockSource('Main Inventory');
+      setDisposition('Returned to Inventory');
+      setRestockDestination('Inventory Only');
     }
   }
 
@@ -690,7 +700,23 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
           )}
         </div>
 
-        {/* Step 2: Select New Replacement Items */}
+        {/* A1 Progressive Disclosure: Steps 2–4 only shown once at least one old item is selected */}
+        {selectedOldIndices.length === 0 && (
+          <div style={{
+            padding: '16px 20px',
+            borderRadius: 8,
+            background: 'rgba(43,98,198,0.04)',
+            border: '1px dashed var(--color-brand-secondary)',
+            color: 'var(--color-ink-muted)',
+            fontSize: 13,
+            textAlign: 'center',
+          }}>
+            ← Select at least one item in Step 1 to continue with the replacement details.
+          </div>
+        )}
+
+        {/* Step 2: Select New Replacement Items — visible only when Step 1 has a selection */}
+        {selectedOldIndices.length > 0 && (
         <div className="form-group">
           <label className="form-label" style={{ fontWeight: 700, fontSize: 14 }}>
             Step 2: Select New Replacement Final Item(s) & Quantities *
@@ -779,8 +805,10 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
             </div>
           )}
         </div>
+        )}
 
-        {/* Step 3: New Stock Source Location */}
+        {/* Step 3: New Stock Source Location — visible only when Step 1 has a selection */}
+        {selectedOldIndices.length > 0 && (
         <div className="form-group" style={{ background: 'rgba(43,98,198,0.05)', padding: 14, borderRadius: 8, border: '1px solid var(--color-border)' }}>
           <label className="form-label" style={{ fontWeight: 700, color: 'var(--color-brand-primary)' }}>
             Step 3: New Stock Dispatch Location (Source) *
@@ -827,8 +855,10 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
             </div>
           )}
         </div>
+        )}
 
-        {/* Step 4: Mandatory Old Item Disposition */}
+        {/* Step 4: Mandatory Old Item Disposition — visible only when Step 1 has a selection */}
+        {selectedOldIndices.length > 0 && (
         <div className="form-group" style={{ background: 'rgba(255,152,0,0.06)', padding: 14, borderRadius: 8, border: '1px solid rgba(255,152,0,0.25)' }}>
           <label className="form-label" style={{ fontWeight: 700, color: '#e65100' }}>
             Step 4: Mandatory Old Item Disposition *
@@ -872,6 +902,7 @@ export default function ReplacementDetailPage({ params }: { params: Promise<{ id
             </div>
           )}
         </div>
+        )}
 
         {/* Step 5: Delivery Charge & Discount Customization */}
         <div className="form-group" style={{ background: 'var(--color-surface)', padding: 16, borderRadius: 8, border: '1px solid var(--color-border)' }}>

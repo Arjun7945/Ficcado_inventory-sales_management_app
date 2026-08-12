@@ -525,7 +525,7 @@ export default function NewSalePage() {
               >
                 <option value="Take from Inventory">Take from Unassigned Main Inventory</option>
                 {admins.map((adm) => (
-                  <option key={adm} value={adm}>Admin Warehouse: {adm}</option>
+                  <option key={adm} value={adm}>Handler Warehouse: {adm}</option>
                 ))}
               </select>
               <div style={{ fontSize: 11, color: 'var(--color-ink-muted)', marginTop: 4 }}>

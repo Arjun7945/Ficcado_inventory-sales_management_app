@@ -194,3 +194,53 @@ All Phase 45 through Phase 52 requirements from `mobile_mode_feature.md` fully i
 8. **End-to-End Audit & Verification (Phase 52)**:
    - Verified zero TypeScript errors across all components, layout, and API routes (`node node_modules/typescript/bin/tsc --noEmit`).
 
+## 2026-08-12 - PART 6 COMPLETE
+All Phase 53 through Phase 57 requirements from `Part6_of_implementation_ficcado.md` fully implemented and verified:
+
+1. **Replacement Progressive Disclosure (Phase 53 / A1)**:
+   - Steps 2–4 of the replacement form (`replacement/[id]/page.tsx`) are now hidden until at least one old item is selected in Step 1.
+   - When all Step 1 checkboxes are unchecked, `toggleOldItemIndex` automatically clears `selectedNewItems`, resets `newStockSource`, `disposition`, and `restockDestination` to defaults — preventing stale state resurrection.
+   - A contextual hint prompt is displayed in place of Steps 2–4 when nothing is selected.
+   - Step 5 (Delivery & Discount) and Status Progression remain always visible and unaffected.
+
+2. **Tablet Viewport Design Audit (Phase 54 / A2 & A3)**:
+   - Added a complete `@media (min-width: 769px) and (max-width: 1024px)` breakpoint block to `app/globals.css`.
+   - Tablet-specific rules: sidebar narrows to 200px, grid-form-3 collapses to 2-col, stats-grid uses minmax(200px, 1fr), card padding tightens, tables get scroll wrappers, modals expand to 95%, wizard/tab-lists wrap on overflow.
+   - `.mobile-only` and `.desktop-only` utility classes explicitly managed on tablet (always shows desktop nav structure).
+
+3. **Self-Service Email Configuration (Phase 55 / B1)**:
+   - `GET /api/setup/email-config` added — returns senderAddress + hasPassword flag without exposing the stored password.
+   - `POST /api/setup/email-config` updated — writes a Sales Log entry; password never logged.
+   - New `✉ Email Config` tab in Admin Control Centre with a current-sender display card and Update modal featuring overwrite warning, collapsible Gmail App Password guide, confirmation checkbox, and pre-save SMTP test with specific error messages.
+
+4. **Add More Items to Existing Sale (Phase 56 / B2)**:
+   - `POST /api/sales/[id]/add-items` created: validates stock, deducts from inventory/warehouse, records `inventory_history` (`Sale Addition` type), expands item lists on the sale row, recalculates total via `calculateSaleTotalAmount`, and writes a Sales Log entry.
+   - Sales Detail Page: `+ Add Items to Sale` button in Purchased Items header (hidden when locked). Inline expandable panel with fulfilment source, inventory item picker, per-item qty stepper + price input, and submit button. Reloads sale on success.
+
+5. **Audit & Build Verification (Phase 57)**:
+   - Zero TypeScript errors: `node node_modules/typescript/bin/tsc --noEmit` passed cleanly.
+
+## 2026-08-12 - PART 6.1 COMPLETE
+All Phase 58 through Phase 61 requirements from `Part6_of_implementation_ficcado.md` addendum fully implemented and verified:
+
+1. **Two-State Order Confirmation Email Templates (Phase 58 / C1)**:
+   - Updated `app/api/sales/[id]/send-confirmation/route.ts` to select between two templates dynamically at the moment the "Send Gmail Confirmation" button is clicked:
+     - **Template B ("After Order Completed")**: Selected **only** when all three conditions are satisfied: `Sale Status` contains satisfied/completed, `Delivery Status` === `'Order Delivered Successfully'`, and `Payment Status` === `'Paid'`.
+     - **Template A ("Before Order Complete")**: Selected in **every other case** (including partial/mixed states). Contains the upgrade prompt: *"Want to add more items to your order? If you'd like to add any additional products before your order is shipped, simply reply to this email or contact us at +91 94971 44795."*
+   - Subject lines, attached PDF invoice generation, and Purchased Items breakdown tables remain identical between templates.
+
+2. **Fulfilment Source Dropdown Handler Filtering (Phase 59 / D1)**:
+   - Updated `GET /api/sales`, `GET /api/replacement/[id]`, and `GET /api/return-refund/[id]` to extract all distinct handlers directly from the `Warehouse Management` sheet.
+   - Now supports **both Admin Handlers (e.g. Sinan, Rohith) AND Custom Handlers (non-admin handlers created in Warehouse like Rahul)**.
+   - Custom Handlers like Rahul with active stock (`qty > 0`) now appear in all 4 stock operation dropdowns:
+     - **Sale Creation** (taking stock `-`)
+     - **Add Items to Existing Sale** (taking stock `-`)
+     - **Replacement Workflow** (New Stock Source dispatch location `-` and Old Item Restock Destination `+`)
+     - **Return / Refund Workflow** (Item Restock Destination `+`)
+
+3. **Cash Payment Mode Display Fix (Phase 60 / D2)**:
+   - Updated `lib/invoiceGenerator.ts` and `send-confirmation/route.ts` so `Mode of Payment` displays the actual selected value (`Cash`, `UPI`, `Card`), defaulting to `'Cash'` if missing/N/A, instead of displaying `'N/A'`.
+   - `Transaction ID` remains conditionally omitted for `Cash` payments while being properly rendered for digital payments (`UPI`, `Card`, `Bank Transfer`).
+
+4. **Audit & Build Verification (Phase 61)**:
+   - Verified zero TypeScript compilation errors via `node node_modules/typescript/bin/tsc --noEmit`.

@@ -219,23 +219,31 @@ export async function GET() {
       qty:      parseInt(r[COL_INV.qty] ?? '0', 10) || 0,
     })).filter((inv) => inv.itemName && inv.size && inv.qty > 0);
 
-    // Registered handlers (admins)
-    const admins = adminRows.slice(1).map((r) => (r[1] ?? '').trim()).filter(Boolean);
-
-    // Warehouse stock per handler
+    // Collect all unique handlers (both Admin Handlers and Custom Handlers) who hold active warehouse stock (qty > 0)
+    const activeHandlerMap = new Map<string, string>();
     const warehouseStock: Record<string, number> = {};
+
     for (const r of wRows.slice(1)) {
       const handler = (r[COL_W.handler] ?? '').trim();
       const itemName = (r[COL_W.itemName] ?? '').trim();
       const size = (r[COL_W.size] ?? '').trim();
       const qty = parseInt(r[COL_W.qty] ?? '0', 10) || 0;
+      if (handler && qty > 0) {
+        if (!activeHandlerMap.has(handler.toLowerCase())) {
+          activeHandlerMap.set(handler.toLowerCase(), handler);
+        }
+      }
       if (handler && itemName && size) {
         const key = `${handler}:${itemName}:${size}`;
         warehouseStock[key] = (warehouseStock[key] || 0) + qty;
       }
     }
 
-    return Response.json({ sales, inventoryStock, admins, warehouseStock });
+    const activeHandlersList = Array.from(activeHandlerMap.values());
+
+    return Response.json({ sales, inventoryStock, admins: activeHandlersList, handlers: activeHandlersList, warehouseStock });
+
+
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return Response.json(

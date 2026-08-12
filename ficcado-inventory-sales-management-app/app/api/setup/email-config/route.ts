@@ -1,24 +1,57 @@
 /**
  * app/api/setup/email-config/route.ts
  *
- * POST /api/setup/email-config
- * Setup Wizard Step 3: store Gmail sender + encrypted app password.
+ * GET  /api/setup/email-config
+ * Returns current Gmail sender address and whether a password is on file.
+ * Does NOT return the password itself.
  *
+ * POST /api/setup/email-config
+ * Store (or update) Gmail sender + encrypted app password.
  * Body: { senderAddress, appPassword, testSend?: boolean }
  *
  * The app password is encrypted with AES-256-CBC before storage.
  * See lib/google/appMeta.ts for the encryption approach and its documented tradeoff.
+ *
+ * Part 6 B1: GET added for Admin Control Centre "Update Email Configuration" display.
+ *            POST now logs the config change to sales_log.
  */
 
 import nodemailer from 'nodemailer';
-import { requireSuperadmin } from '@/lib/auth';
-import { setAppMeta, encryptValue } from '@/lib/google/appMeta';
+import { requireAuth, requireSuperadmin } from '@/lib/auth';
+import { getAppMeta, setAppMeta, encryptValue } from '@/lib/google/appMeta';
+import { recordSalesLog } from '@/lib/salesLogger';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(request: Request) {
+/** GET /api/setup/email-config — return current sender address + presence flag */
+export async function GET(_request: Request) {
   try {
-    await requireSuperadmin();
+    await requireAuth();
+  } catch (authErr) {
+    if (authErr instanceof Response) return authErr;
+    return Response.json({ error: 'Authentication required.' }, { status: 401 });
+  }
+
+  try {
+    const senderAddress = await getAppMeta('gmail_sender');
+    const passwordEnc   = await getAppMeta('gmail_password_enc');
+
+    return Response.json({
+      senderAddress: senderAddress || null,
+      hasPassword:   Boolean(passwordEnc && passwordEnc.length > 0),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[setup/email-config GET]', message);
+    return Response.json({ error: 'Could not read email configuration.' }, { status: 500 });
+  }
+}
+
+/** POST /api/setup/email-config — save / overwrite Gmail credentials */
+export async function POST(request: Request) {
+  let admin: Awaited<ReturnType<typeof requireSuperadmin>>;
+  try {
+    admin = await requireSuperadmin();
   } catch (authErr) {
     if (authErr instanceof Response) return authErr;
     return Response.json({ error: 'Authentication required.' }, { status: 401 });
@@ -43,7 +76,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // If testSend is requested, try sending a test email first
+    // If testSend is requested, verify SMTP credentials first before committing
     if (testSend) {
       const transporter = nodemailer.createTransport({
         host:   'smtp.gmail.com',
@@ -61,9 +94,8 @@ export async function POST(request: Request) {
         return Response.json(
           {
             error:
-              "Couldn't connect to Gmail — the app password may be incorrect. " +
-              'Double-check the app password and ensure "Less secure app access" or ' +
-              'the correct Gmail App Password is being used.',
+              "Couldn't connect with these credentials — double check the app password was copied correctly. " +
+              'Make sure 2-Step Verification is enabled on the Gmail account and a fresh App Password was generated.',
           },
           { status: 422 }
         );
@@ -75,6 +107,14 @@ export async function POST(request: Request) {
 
     await setAppMeta('gmail_sender', senderAddress);
     await setAppMeta('gmail_password_enc', encryptedPassword);
+
+    // Part 6 B1: Log the config change — never log the password itself
+    await recordSalesLog({
+      module:    'Sales',
+      operation: 'Update',
+      message:   `Admin ${admin.name} updated the email sending configuration. Sender address set to: ${senderAddress}.`,
+      adminName: admin.name,
+    });
 
     return Response.json({
       success: true,

@@ -7,6 +7,7 @@
  * Updated with:
  * - A1: Rename "Refund Requested" -> "Return/Refund Requested"
  * - A3: Consolidated Total Amount live recalculation on edit (delivery charge, discount change)
+ * - Part 6 B2: Add Items to Existing Sale
  */
 
 import React, { useEffect, useState, use } from 'react';
@@ -80,6 +81,16 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
   const [completionTransactionId, setCompletionTransactionId] = useState('');
   const [completionError, setCompletionError] = useState<string | null>(null);
 
+  // Part 6 B2: Add Items to Existing Sale
+  const [showAddItems, setShowAddItems]                 = useState(false);
+  const [addItemsInventory, setAddItemsInventory]       = useState<{ itemName: string; size: string; qty: number }[]>([]);
+  const [addItemsAdmins, setAddItemsAdmins]             = useState<string[]>([]);
+  const [addItemsPriceMap, setAddItemsPriceMap]         = useState<Record<string, number>>({});
+  const [pendingAddItems, setPendingAddItems]           = useState<{ itemName: string; size: string; qty: number; unitPrice: number; fulfilmentSource: string }[]>([]);
+  const [addItemsFulfilmentSource, setAddItemsFulfilmentSource] = useState('Main Inventory');
+  const [addItemsSubmitting, setAddItemsSubmitting]     = useState(false);
+  const [addItemsError, setAddItemsError]               = useState<string | null>(null);
+
   async function loadSale() {
     setLoading(true);
     try {
@@ -111,6 +122,95 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
   }
 
   useEffect(() => { loadSale(); }, [invoiceId]);
+
+  // Part 6 B2: Load inventory, items catalog (for prices), and admin list when the Add Items panel is opened
+  async function handleOpenAddItems() {
+    setShowAddItems(true);
+    setAddItemsError(null);
+    setPendingAddItems([]);
+    setAddItemsFulfilmentSource('Main Inventory');
+
+    if (addItemsInventory.length === 0) {
+      try {
+        const [invRes, salesRes, itemsRes] = await Promise.all([
+          fetch('/api/inventory').then((r) => r.json()),
+          fetch('/api/sales').then((r) => r.json()),
+          fetch('/api/items').then((r) => r.json()),
+        ]);
+        if (invRes.inventory) setAddItemsInventory(invRes.inventory);
+        if (salesRes.admins)  setAddItemsAdmins(salesRes.admins);
+        if (itemsRes.items) {
+          // Build a lowercase-name → catalog price map for fast lookup
+          const priceMap: Record<string, number> = {};
+          for (const it of itemsRes.items) {
+            const name  = (it.itemName || '').toLowerCase().trim();
+            const price = parseFloat(it.price) || 0;
+            if (name) priceMap[name] = price;
+          }
+          setAddItemsPriceMap(priceMap);
+        }
+      } catch {
+        setAddItemsError("Couldn't load inventory. Please try again.");
+      }
+    }
+  }
+
+  function handleAddItemToList(value: string) {
+    if (!value) return;
+    const [itemName, size] = value.split(':');
+    const alreadyAdded = pendingAddItems.find((i) => i.itemName === itemName && i.size === size);
+    if (alreadyAdded) return;
+    // Pre-populate catalog price so the admin doesn't have to type it manually
+    const catalogPrice = addItemsPriceMap[itemName.toLowerCase().trim()] ?? 0;
+    setPendingAddItems((prev) => [
+      ...prev,
+      { itemName, size, qty: 1, unitPrice: catalogPrice, fulfilmentSource: addItemsFulfilmentSource },
+    ]);
+  }
+
+  function updatePendingItemField(index: number, field: 'qty' | 'unitPrice', value: number) {
+    setPendingAddItems((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, [field]: value } : item))
+    );
+  }
+
+  function removePendingItem(index: number) {
+    setPendingAddItems((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  async function handleSubmitAddItems() {
+    setAddItemsError(null);
+    if (pendingAddItems.length === 0) {
+      setAddItemsError('Select at least one item to add.');
+      return;
+    }
+
+    const withSource = pendingAddItems.map((i) => ({ ...i, fulfilmentSource: addItemsFulfilmentSource }));
+
+    setAddItemsSubmitting(true);
+    try {
+      const res  = await fetch(`/api/sales/${encodeURIComponent(invoiceId)}/add-items`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ items: withSource }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setAddItemsError(data.error || 'Failed to add items.');
+        return;
+      }
+
+      setShowAddItems(false);
+      setPendingAddItems([]);
+      setSuccessMsg(data.message || 'Items added to sale successfully.');
+      loadSale();
+    } catch {
+      setAddItemsError("Couldn't connect to server. Please try again.");
+    } finally {
+      setAddItemsSubmitting(false);
+    }
+  }
 
   const isLocked = sale ? sale.fulfilmentStatus !== 'Normal' : false;
 
@@ -455,9 +555,171 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
 
       {/* Purchased Items Table */}
       <div className="card" style={{ marginBottom: 24, opacity: isLocked ? 0.85 : 1 }}>
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16, marginBottom: 16, borderBottom: '1px solid var(--color-border)', paddingBottom: 8 }}>
-          Purchased Items
-        </h2>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 16,
+          borderBottom: '1px solid var(--color-border)',
+          paddingBottom: 8,
+          gap: 10,
+          flexWrap: 'wrap',
+        }}>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 16 }}>Purchased Items</h2>
+          {!isLocked && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={handleOpenAddItems}
+              disabled={showAddItems}
+            >
+              + Add Items to Sale
+            </button>
+          )}
+        </div>
+
+        {/* Part 6 B2: Add Items Panel */}
+        {showAddItems && (
+          <div style={{
+            background: 'rgba(43,98,198,0.04)',
+            border: '1px dashed var(--color-brand-secondary)',
+            borderRadius: 8,
+            padding: 16,
+            marginBottom: 20,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700 }}>Add More Items</h3>
+              <button
+                type="button"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-ink-muted)', fontSize: 18 }}
+                onClick={() => { setShowAddItems(false); setPendingAddItems([]); setAddItemsError(null); }}
+              >
+                ×
+              </button>
+            </div>
+
+            {addItemsError && <ErrorMessage message={addItemsError} variant="error" onDismiss={() => setAddItemsError(null)} />}
+
+            {/* Fulfilment Source Select */}
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <label className="form-label">Fulfilment Source *</label>
+              <select
+                className="form-select"
+                value={addItemsFulfilmentSource}
+                onChange={(e) => setAddItemsFulfilmentSource(e.target.value)}
+              >
+                <option value="Main Inventory">Main Inventory (Unassigned Main Stock)</option>
+                {addItemsAdmins.map((adm) => (
+                  <option key={adm} value={adm}>Handler: {adm}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Item Picker */}
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <label className="form-label">Select Item from Inventory *</label>
+              <select
+                className="form-select"
+                onChange={(e) => { handleAddItemToList(e.target.value); e.currentTarget.value = ''; }}
+                defaultValue=""
+              >
+                <option value="">-- Choose item to add --</option>
+                {addItemsInventory.map((inv) => (
+                  <option key={`${inv.itemName}:${inv.size}`} value={`${inv.itemName}:${inv.size}`}>
+                    {inv.itemName} — Size {inv.size} ({inv.qty} available)
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Pending Item Cards */}
+            {pendingAddItems.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
+                {pendingAddItems.map((item, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '10px 14px',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 8,
+                      background: '#fff',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 120 }}>
+                      <span style={{ fontWeight: 700, fontSize: 13 }}>{item.itemName}</span>
+                      <span className="badge badge-neutral" style={{ marginLeft: 8, fontSize: 11 }}>Size {item.size}</span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>Qty:</span>
+                      <button type="button" className="btn btn-ghost btn-sm" style={{ padding: '2px 8px', height: 26, minWidth: 26 }}
+                        onClick={() => updatePendingItemField(idx, 'qty', Math.max(1, item.qty - 1))}>
+                        -
+                      </button>
+                      <span style={{ fontWeight: 700, fontSize: 13, minWidth: 20, textAlign: 'center' }}>{item.qty}</span>
+                      <button type="button" className="btn btn-ghost btn-sm" style={{ padding: '2px 8px', height: 26, minWidth: 26 }}
+                        onClick={() => updatePendingItemField(idx, 'qty', item.qty + 1)}>
+                        +
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>Price each: ₹</span>
+                      <input
+                        type="number"
+                        className="form-input"
+                        style={{ width: 80, padding: '4px 8px', fontSize: 13 }}
+                        value={item.unitPrice}
+                        min={0}
+                        onChange={(e) => updatePendingItemField(idx, 'unitPrice', parseFloat(e.target.value) || 0)}
+                      />
+                    </div>
+
+                    <div style={{ fontWeight: 700, fontSize: 13, minWidth: 80, textAlign: 'right' }} className="tabular-nums">
+                      ₹{(item.unitPrice * item.qty).toLocaleString('en-IN')}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => removePendingItem(idx)}
+                      style={{ background: 'none', border: 'none', color: 'var(--color-error)', cursor: 'pointer', fontWeight: 700, fontSize: 16 }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {pendingAddItems.length === 0 && (
+              <div style={{ fontSize: 13, color: 'var(--color-ink-muted)', textAlign: 'center', padding: '12px 0' }}>
+                Select items from the dropdown above to add them to this sale.
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => { setShowAddItems(false); setPendingAddItems([]); setAddItemsError(null); }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleSubmitAddItems}
+                disabled={addItemsSubmitting || pendingAddItems.length === 0}
+              >
+                {addItemsSubmitting ? <LoadingGecko size="inline" label="Adding…" /> : `Add ${pendingAddItems.length} Item(s) to Sale`}
+              </button>
+            </div>
+          </div>
+        )}
 
         {(() => {
           const names = (sale?.itemNames || '').split(',').map((n) => n.trim()).filter(Boolean);

@@ -1055,6 +1055,127 @@ h1, h2, h3, h4, h5, h6 {
   background-color: var(--color-brand-primary);
 }
 
+/* ============================================================
+   Tablet Breakpoint — 769px to 1024px
+   Distinct from mobile (≤768px) and desktop (≥1025px).
+   Closer to desktop layout but with tighter margins,
+   responsive grid reflows, and touch-friendly sizing.
+   Source of truth: docs/DESIGN.md
+   ============================================================ */
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  /* Sidebar: narrower on tablet */
+  :root {
+    --sidebar-width: 200px;
+  }
+
+  .app-sidebar {
+    width: 200px;
+  }
+
+  .app-main {
+    margin-left: 200px;
+  }
+
+  .app-content {
+    padding: 20px;
+  }
+
+  /* Page header: allow wrapping on narrower tablet widths */
+  .page-header {
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: flex-start;
+  }
+
+  .page-title {
+    font-size: 20px;
+  }
+
+  /* Grid forms: 3-col collapses to 2-col on tablet */
+  .grid-form-3 {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* Stats grid: floor at 200px per card so 3 can still fit */
+  .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px;
+  }
+
+  .stat-value {
+    font-size: 22px;
+  }
+
+  /* Card padding: slightly tighter on tablet */
+  .card {
+    padding: 16px;
+  }
+
+  /* Tables: always horizontally scrollable on tablet */
+  .table-scroll-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Table cells: tighter padding on tablet */
+  .data-table th,
+  .table th {
+    padding: 10px 12px;
+  }
+
+  .data-table td,
+  .table td {
+    padding: 11px 12px;
+  }
+
+  /* Modal: full-width on narrow tablet */
+  .modal {
+    width: 95%;
+    max-width: 600px;
+  }
+
+  /* Sidebar nav text: slightly smaller to fit in 200px column */
+  .nav-item {
+    font-size: 13px;
+    padding: 8px 10px;
+  }
+
+  /* Search bar: fluid on tablet */
+  .search-bar {
+    width: 100%;
+    max-width: 280px;
+  }
+
+  /* Wizard steps: wrap on tablet */
+  .wizard-steps {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .wizard-step {
+    flex: 0 1 auto;
+    min-width: 140px;
+  }
+
+  /* Tab list: allow wrapping if too many tabs */
+  .tab-list {
+    flex-wrap: wrap;
+    gap: 0;
+  }
+
+  .tab-item {
+    padding: 8px 14px;
+    font-size: 13px;
+  }
+
+  /* Mobile-specific classes stay hidden on tablet (tablet uses desktop nav) */
+  .mobile-only  { display: none !important; }
+  .desktop-only { display: block !important; }
+  .mobile-header   { display: none; }
+  .mobile-back-bar { display: none; }
+}
+
 @media (max-width: 768px) {
   .mobile-only { display: block !important; }
   .desktop-only { display: none !important; }
