@@ -7,7 +7,7 @@
  */
 
 import { getAuthSession } from '@/lib/auth';
-import { readAllRows } from '@/lib/google/moduleSheet';
+import { readAllRows, getDashboardStatsCache, setDashboardStatsCache } from '@/lib/google/moduleSheet';
 import { buildHeaderMap, getCellByHeader } from '@/lib/google/headerUtils';
 
 export const dynamic = 'force-dynamic';
@@ -23,6 +23,10 @@ async function safeRead(moduleKey: string): Promise<string[][]> {
 export async function GET() {
   const auth = await getAuthSession();
   if ('errorResponse' in auth) return auth.errorResponse;
+
+  // ── Phase 66: Return cached stats if still fresh (60s TTL) ─────────────────
+  const cached = getDashboardStatsCache();
+  if (cached) return Response.json({ stats: cached.stats });
 
   try {
     const now = new Date();
@@ -146,25 +150,26 @@ export async function GET() {
       }
     }
 
-    return Response.json({
-      stats: {
-        todaySales,
-        todayRevenue,
-        todayUnpaidRevenue,
-        todayUnpaidSales,
-        todayItemsSold,
-        totalItems,
-        lowStockCount,
-        pendingReplacement: pendingReplacementToday,
-        pendingRefunds: pendingRefundsToday,
-        overallSales,
-        overallRevenue,
-        overallUnpaidRevenue,
-        overallUnpaidSales,
-        totalPendingReplacements,
-        totalPendingRefunds,
-      },
-    });
+    const stats = {
+      todaySales,
+      todayRevenue,
+      todayUnpaidRevenue,
+      todayUnpaidSales,
+      todayItemsSold,
+      totalItems,
+      lowStockCount,
+      pendingReplacement: pendingReplacementToday,
+      pendingRefunds: pendingRefundsToday,
+      overallSales,
+      overallRevenue,
+      overallUnpaidRevenue,
+      overallUnpaidSales,
+      totalPendingReplacements,
+      totalPendingRefunds,
+    };
+    // ── Phase 66: Populate the 60s server-side cache ─────────────────────────
+    setDashboardStatsCache(stats);
+    return Response.json({ stats });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return Response.json(

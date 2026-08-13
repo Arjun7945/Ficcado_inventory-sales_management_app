@@ -16,6 +16,7 @@ import Link from 'next/link';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
 import MobileBackButton from '@/components/MobileBackButton';
+import { formatISTDateTime } from '@/lib/dateUtils';
 
 interface Sale {
   rowIndex:             number;
@@ -62,15 +63,17 @@ export default function SalesPage() {
   const [error, setError]           = useState<{ message: string } | null>(null);
   const [search, setSearch]         = useState('');
   const [filterPayment, setFilterPayment] = useState('');
+  const [selectedModule, setSelectedModule] = useState('sales');
 
   // Per-row action states: key = invoiceNumber
   const [sendingEmail, setSendingEmail]   = useState<Record<string, boolean>>({});
   const [rowFeedback, setRowFeedback]     = useState<Record<string, { type: 'success' | 'error'; message: string }>>({});
 
-  async function loadSales() {
+  async function loadSales(mod = selectedModule) {
     setLoading(true);
     try {
-      const res = await fetch('/api/sales');
+      const url = mod && mod !== 'sales' ? `/api/sales?module=${encodeURIComponent(mod)}` : '/api/sales';
+      const res = await fetch(url);
       const data = await res.json();
       if (!res.ok) { setError(parseApiError(data)); return; }
       setSales(data.sales ?? []);
@@ -81,7 +84,7 @@ export default function SalesPage() {
     }
   }
 
-  useEffect(() => { loadSales(); }, []);
+  useEffect(() => { loadSales(selectedModule); }, [selectedModule]);
 
   const filtered = sales.filter((s) => {
     const q = search.toLowerCase();
@@ -173,7 +176,7 @@ export default function SalesPage() {
           <option value="Not Paid">Not Paid</option>
           <option value="Credit">Credit</option>
         </select>
-        <button className="btn btn-ghost btn-sm" onClick={loadSales} disabled={loading}>↻ Refresh</button>
+        <button className="btn btn-ghost btn-sm" onClick={() => loadSales(selectedModule)} disabled={loading}>↻ Refresh</button>
       </div>
 
       {/* ── Mobile Card List View ────────────────────────────────────────── */}
@@ -230,7 +233,7 @@ export default function SalesPage() {
                     {sale.saleStatus}
                   </span>
                   <span style={{ fontSize: 11, color: 'var(--color-ink-muted)' }}>
-                    {sale.createdAt ? new Date(sale.createdAt).toLocaleDateString('en-IN') : ''}
+                    {formatISTDateTime(sale.createdAt)}
                   </span>
                 </div>
 
@@ -372,7 +375,7 @@ export default function SalesPage() {
                         )}
                       </td>
                       <td style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>
-                        {sale.createdAt ? new Date(sale.createdAt).toLocaleDateString('en-IN') : '—'}
+                        {formatISTDateTime(sale.createdAt)}
                       </td>
                       <td>
                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>

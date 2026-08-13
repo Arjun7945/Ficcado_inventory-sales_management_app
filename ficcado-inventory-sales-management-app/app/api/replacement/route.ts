@@ -50,7 +50,7 @@ export async function GET() {
       version:                             getCellByHeader(row, headerMap, 'Version', '1'),
     })).filter((r) => r.invoiceNumber);
 
-    return Response.json({ replacements });
+    return Response.json({ replacements: replacements.reverse() });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return Response.json({ error: "Couldn't load replacements.", detail: message }, { status: 500 });

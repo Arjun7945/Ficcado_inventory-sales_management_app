@@ -13,6 +13,7 @@ import Link from 'next/link';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage from '@/components/ErrorMessage';
 import MobileBackButton from '@/components/MobileBackButton';
+import { formatISTDateTime, formatISTTextTimestamps } from '@/lib/dateUtils';
 
 interface SalesLogItem {
   sno: string;
@@ -26,6 +27,8 @@ interface SalesLogItem {
 
 const MODULE_OPTIONS = ['ALL', 'Sales', 'Replacement', 'Return/Refund', 'Damaged Products', 'Items'];
 
+const PAGE_SIZE = 50;
+
 export default function SalesLogPage() {
   const [logs, setLogs] = useState<SalesLogItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,15 +36,27 @@ export default function SalesLogPage() {
 
   const [selectedModule, setSelectedModule] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalLogs, setTotalLogs] = useState(0);
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  async function fetchLogs(silent = false) {
+  async function fetchLogs(silent = false, targetPage = page) {
     if (!silent) setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams();
-      if (selectedModule !== 'ALL') params.set('module', selectedModule);
-      if (searchQuery.trim()) params.set('search', searchQuery.trim());
+      const isFiltered = selectedModule !== 'ALL' || searchQuery.trim();
+
+      if (isFiltered) {
+        // Filtered / search mode: full read, server-side filter
+        if (selectedModule !== 'ALL') params.set('module', selectedModule);
+        if (searchQuery.trim()) params.set('search', searchQuery.trim());
+      } else {
+        // Phase 63: Server-side paginated, newest-first
+        params.set('page', String(targetPage));
+        params.set('pageSize', String(PAGE_SIZE));
+      }
 
       const res = await fetch(`/api/sales-log?${params.toString()}`);
       const data = await res.json();
@@ -53,6 +68,14 @@ export default function SalesLogPage() {
 
       setLogs(data.logs || []);
 
+      if (data.pagination) {
+        setTotalPages(data.pagination.totalPages ?? 1);
+        setTotalLogs(data.pagination.total ?? 0);
+      } else {
+        setTotalPages(1);
+        setTotalLogs((data.logs || []).length);
+      }
+
       // Mark sales log as read now
       localStorage.setItem('ficcado_last_read_sales_log_time', new Date().toISOString());
     } catch {
@@ -63,17 +86,23 @@ export default function SalesLogPage() {
   }
 
   useEffect(() => {
-    fetchLogs();
+    setPage(1);
+    fetchLogs(false, 1);
 
-    // Setup 15-second polling for live updates
+    // Setup 15-second polling for live updates (page 1 only)
     pollTimerRef.current = setInterval(() => {
-      fetchLogs(true);
+      if (page === 1) fetchLogs(true, 1);
     }, 15_000);
 
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     };
   }, [selectedModule]);
+
+  function handlePageChange(newPage: number) {
+    setPage(newPage);
+    fetchLogs(false, newPage);
+  }
 
   return (
     <div>
@@ -154,7 +183,7 @@ export default function SalesLogPage() {
                     {log.module}
                   </span>
                   <span style={{ fontSize: 11, color: 'var(--color-ink-muted)' }}>
-                    {new Date(log.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                    {formatISTDateTime(log.createdAt)}
                   </span>
                 </div>
 
@@ -163,12 +192,12 @@ export default function SalesLogPage() {
                 </div>
 
                 <div style={{ fontSize: 12, color: 'var(--color-ink)', lineHeight: 1.4 }}>
-                  {log.message}
+                  {formatISTTextTimestamps(log.message)}
                 </div>
 
                 <div style={{ fontSize: 11, color: 'var(--color-ink-muted)', marginTop: 4, display: 'flex', justifyContent: 'space-between' }}>
                   <span>By {log.createdBy}</span>
-                  <span>{new Date(log.createdAt).toLocaleDateString('en-IN')}</span>
+                  <span>{formatISTDateTime(log.createdAt)}</span>
                 </div>
               </div>
             ))}
@@ -216,7 +245,7 @@ export default function SalesLogPage() {
                       <tr key={log.sno + log.createdAt}>
                         <td style={{ textAlign: 'center', color: 'var(--color-ink-muted)' }}>{log.sno}</td>
                         <td style={{ whiteSpace: 'nowrap', fontSize: 12, color: 'var(--color-ink-muted)' }}>
-                          {new Date(log.createdAt).toLocaleString('en-IN')}
+                          {formatISTDateTime(log.createdAt)}
                         </td>
                         <td>
                           <span className={`badge ${moduleBadgeColor}`} style={{ fontSize: 11 }}>
@@ -236,7 +265,7 @@ export default function SalesLogPage() {
                           )}
                         </td>
                         <td style={{ lineHeight: 1.4, color: 'var(--color-ink)' }}>
-                          {log.message}
+                          {formatISTTextTimestamps(log.message)}
                         </td>
                         <td style={{ fontWeight: 600, fontSize: 12 }}>
                           {log.createdBy}
@@ -247,6 +276,30 @@ export default function SalesLogPage() {
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {/* Phase 63: Pagination Controls */}
+        {totalPages > 1 && !searchQuery.trim() && selectedModule === 'ALL' && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 20, padding: '12px 0' }}>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => handlePageChange(page - 1)}
+              disabled={page <= 1 || loading}
+            >
+              ← Prev
+            </button>
+            <span style={{ fontSize: 13, color: 'var(--color-ink-muted)', fontWeight: 600 }}>
+              Page {page} of {totalPages}
+              <span style={{ fontWeight: 400, marginLeft: 8 }}>({totalLogs} total entries)</span>
+            </span>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => handlePageChange(page + 1)}
+              disabled={page >= totalPages || loading}
+            >
+              Next →
+            </button>
           </div>
         )}
       </div>

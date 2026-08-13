@@ -17,6 +17,7 @@ import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
 import MobileBackButton from '@/components/MobileBackButton';
 import { calculateSaleTotalAmount } from '@/lib/salesPricing';
+import { formatISTDateTime } from '@/lib/dateUtils';
 
 interface Sale {
   rowIndex:             number;
@@ -446,7 +447,7 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
             )}
           </div>
           <div className="page-subtitle">
-            Created by {sale?.createdBy} on {sale?.createdAt ? new Date(sale.createdAt).toLocaleString('en-IN') : '—'}
+            Created by {sale?.createdBy} on {formatISTDateTime(sale?.createdAt)}
           </div>
         </div>
 

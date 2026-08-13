@@ -12,6 +12,7 @@ import React, { useEffect, useState } from 'react';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
 import { validate, DamagedProductSchema } from '@/lib/validation';
+import { formatISTDateTime } from '@/lib/dateUtils';
 
 interface DamagedProduct {
   rowIndex:      number;
@@ -231,7 +232,7 @@ export default function DamagedProductsPage() {
                     <td>{item.customerName || '—'}</td>
                     <td style={{ fontSize: 12.5, color: 'var(--color-ink-muted)' }}>{item.reasonNotes || '—'}</td>
                     <td style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>
-                      {item.createdAt ? new Date(item.createdAt).toLocaleDateString('en-IN') : '—'}
+                      {formatISTDateTime(item.createdAt)}
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>

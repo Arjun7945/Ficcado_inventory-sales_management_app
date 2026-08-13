@@ -9,6 +9,7 @@ import React, { useEffect, useState } from 'react';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
 import MobileBackButton from '@/components/MobileBackButton';
+import { formatISTDateTime } from '@/lib/dateUtils';
 
 interface Note {
   rowIndex:  number;
@@ -188,7 +189,7 @@ export default function NotesPage() {
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>
-                        {note.createdBy} · {note.createdAt ? new Date(note.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                        {note.createdBy} · {formatISTDateTime(note.createdAt)}
                         {note.updatedBy && note.updatedBy !== note.createdBy && (
                           <span style={{ marginLeft: 8 }}>· Updated by {note.updatedBy}</span>
                         )}

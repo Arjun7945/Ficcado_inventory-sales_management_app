@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { formatISTDateTime, formatISTTextTimestamps } from '@/lib/dateUtils';
 
 interface DashboardStats {
   todaySales:                number;
@@ -282,10 +283,10 @@ export default function DashboardPage() {
                     <strong style={{ color: 'var(--color-brand-primary)' }}>{log.module}</strong> ({log.operation})
                     {log.relatedInvoiceNumber && ` — Invoice: ${log.relatedInvoiceNumber}`}
                   </span>
-                  <span>{new Date(log.createdAt).toLocaleString('en-IN')}</span>
+                  <span>{formatISTDateTime(log.createdAt)}</span>
                 </div>
                 <div style={{ color: 'var(--color-ink)', lineHeight: 1.4 }}>
-                  {log.message}
+                  {formatISTTextTimestamps(log.message)}
                 </div>
               </div>
             ))}

@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
 import MobileBackButton from '@/components/MobileBackButton';
+import { formatISTDateTime } from '@/lib/dateUtils';
 
 interface HistoryRecord {
   rowIndex:             number;
@@ -53,7 +54,7 @@ export default function InventoryHistoryPage() {
       const res = await fetch('/api/inventory-history');
       const data = await res.json();
       if (!res.ok) { setError(parseApiError(data)); return; }
-      setHistory((data.history ?? []).reverse()); // newest first
+      setHistory(data.history ?? []); // newest first from API
     } catch {
       setError({ message: "Couldn't load inventory history." });
     } finally {
@@ -195,7 +196,7 @@ export default function InventoryHistoryPage() {
                   return (
                     <tr key={i}>
                       <td style={{ fontSize: 12, color: 'var(--color-ink-muted)', whiteSpace: 'nowrap' }}>
-                        {h.createdAt ? new Date(h.createdAt).toLocaleString('en-IN') : '—'}
+                        {formatISTDateTime(h.createdAt)}
                       </td>
                       <td>
                         <div style={{ fontWeight: 600 }}>{h.itemName}</div>

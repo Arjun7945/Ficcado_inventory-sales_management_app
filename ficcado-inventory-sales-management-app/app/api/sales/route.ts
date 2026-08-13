@@ -5,11 +5,13 @@
  */
 
 import { requireAuth } from '@/lib/auth';
-import { readAllRows, appendRows, updateRow } from '@/lib/google/moduleSheet';
+import { readAllRows, appendRows, updateRow, bustSalesLogPreviewCache } from '@/lib/google/moduleSheet';
 import { validate, SalesSchema } from '@/lib/validation';
 import { logActivity } from '@/lib/activityLogger';
 import { recordInventoryHistory } from '@/lib/inventoryHistory';
 import { recordSalesLog, formatPrice, formatStockLocation, groupItemLines, formatItemListWithSummary } from '@/lib/salesLogger';
+import { updateSearchIndex } from '@/lib/google/searchIndex';
+import { formatISTDateTime } from '@/lib/dateUtils';
 
 export const dynamic = 'force-dynamic';
 
@@ -143,7 +145,7 @@ async function upsertCustomerInfo(params: {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     await requireAuth();
   } catch (authErr) {
@@ -152,8 +154,11 @@ export async function GET() {
   }
 
   try {
+    const { searchParams } = new URL(request.url);
+    const targetModule = searchParams.get('module') || 'sales';
+
     const [salesRows, invRows, adminRows, wRows] = await Promise.all([
-      readAllRows('sales'),
+      readAllRows(targetModule),
       readAllRows('inventory'),
       readAllRows('admin_info'),
       readAllRows('warehouse'),
@@ -241,7 +246,7 @@ export async function GET() {
 
     const activeHandlersList = Array.from(activeHandlerMap.values());
 
-    return Response.json({ sales, inventoryStock, admins: activeHandlersList, handlers: activeHandlersList, warehouseStock });
+    return Response.json({ sales: sales.reverse(), inventoryStock, admins: activeHandlersList, handlers: activeHandlersList, warehouseStock });
 
 
   } catch (err) {
@@ -541,6 +546,14 @@ export async function POST(request: Request) {
       adminName:     admin.name,
     });
 
+    // 5b. Phase 64: Update search index with new invoice number + customer info (silent)
+    const newRowIndex = salesRows.length + 1; // header=row1, new row appended after existing
+    Promise.all([
+      updateSearchIndex('sales', newRowIndex, invoiceNumber),
+      updateSearchIndex('sales', newRowIndex, customerName),
+      updateSearchIndex('sales', newRowIndex, customerPhoneNumber),
+    ]).catch(() => {}); // fire-and-forget, never block the sale response
+
     // 6. Enhanced Activity Logging & Sales Log Audit
     const itemsSummary = Object.values(itemSizeRequests).map((r) => `${r.qty} piece(s) of ${r.itemName} (${r.size})`).join(', ');
     const sourceText = fulfilmentSource === 'Take from Inventory' ? 'unassigned inventory' : `${fulfilmentSource}'s warehouse`;
@@ -571,7 +584,7 @@ export async function POST(request: Request) {
       ? `charged Rs: ${deliveryChargeAmount} as delivery charge`
       : `was not charged delivery charge (FREE DELIVERY)`;
 
-    const salesLogMsg = `Admin ${admin.name} have created a new sale ${invoiceNumber}, for customer ${customerName}, on items ${itemText}. The items were taken from ${formatStockLocation(fulfilmentSource)}. Customer was given a discount of Rs: ${discount || 0}, and customer ${deliveryText}. The final total amount was ${formatPrice(totalAmount)}. The sale was created at ${now}.`;
+    const salesLogMsg = `Admin ${admin.name} have created a new sale ${invoiceNumber}, for customer ${customerName}, on items ${itemText}. The items were taken from ${formatStockLocation(fulfilmentSource)}. Customer was given a discount of Rs: ${discount || 0}, and customer ${deliveryText}. The final total amount was ${formatPrice(totalAmount)}. The sale was created at ${formatISTDateTime(now)}.`;
 
     await recordSalesLog({
       module: 'Sales',
@@ -580,6 +593,7 @@ export async function POST(request: Request) {
       message: salesLogMsg,
       adminName: admin.name,
     });
+    bustSalesLogPreviewCache();
 
     return Response.json({
       success: true,

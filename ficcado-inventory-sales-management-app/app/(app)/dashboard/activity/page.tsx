@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
+import { formatISTDateTime } from '@/lib/dateUtils';
 
 interface LogEntry {
   rowIndex:  number;
@@ -86,7 +87,7 @@ export default function ActivityPage() {
                     {log.message || `${log.adminName} ${log.action} ${log.module} record '${log.recordId}'.`}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--color-ink-muted)', marginTop: 2 }}>
-                    {log.timestamp ? new Date(log.timestamp).toLocaleString('en-IN') : '—'}
+                    {formatISTDateTime(log.timestamp)}
                   </div>
                 </div>
               </div>

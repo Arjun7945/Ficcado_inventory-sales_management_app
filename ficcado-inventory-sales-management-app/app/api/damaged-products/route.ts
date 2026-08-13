@@ -49,7 +49,7 @@ export async function GET() {
       updatedBy:     row[COL.updatedBy]     ?? '',
     })).filter((d) => d.itemName);
 
-    return Response.json({ damagedProducts });
+    return Response.json({ damagedProducts: damagedProducts.reverse() });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return Response.json({ error: "Couldn't load damaged products.", detail: message }, { status: 500 });

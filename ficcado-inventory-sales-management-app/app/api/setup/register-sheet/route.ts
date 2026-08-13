@@ -29,6 +29,7 @@ const MODULE_HEADERS: Record<string, string[]> = {
   inventory_history: ['S.No', 'Item Name', 'Size', 'Quantity Change', 'Affected Sheet', 'Handler (if Warehouse)', 'Transaction Type', 'Related Invoice Number', 'Resulting Balance', 'Created At', 'Created By', 'Notes'],
   customer_info: ['S.No', 'Customer Name', 'Phone Number', 'Address', 'Email ID', 'Total Orders Placed', 'Invoice Numbers', 'Created At', 'Created By', 'Updated At', 'Updated By'],
   sales_log: ['S.No', 'Module', 'Operation', 'Related Invoice Number', 'Log Message', 'Created At', 'Created By', 'Updated At', 'Updated By'],
+  sales_search_index: ['searchKey', 'rowIndex', 'moduleKey'],
 };
 
 const MODULE_DISPLAY_NAMES: Record<string, string> = {
@@ -45,6 +46,7 @@ const MODULE_DISPLAY_NAMES: Record<string, string> = {
   inventory_history: 'Inventory History Tracker Sheet',
   customer_info: 'Customer Information Management Sheet',
   sales_log: 'Sales Log Audit Sheet',
+  sales_search_index: 'Sales Search Index Sheet',
 };
 
 const MODULE_TAB_NAMES: Record<string, string> = {
@@ -61,6 +63,7 @@ const MODULE_TAB_NAMES: Record<string, string> = {
   inventory_history: 'Inventory History',
   customer_info: 'Customer Information',
   sales_log: 'Sales Log',
+  sales_search_index: 'Sales Search Index',
 };
 
 function extractSpreadsheetId(input: string): string {

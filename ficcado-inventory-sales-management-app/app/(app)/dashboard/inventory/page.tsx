@@ -9,6 +9,7 @@
 import React, { useEffect, useState } from 'react';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
+import { formatISTDateTime } from '@/lib/dateUtils';
 
 interface InventoryItem {
   rowIndex: number;
@@ -203,7 +204,7 @@ export default function InventoryPage() {
                         </span>
                       </td>
                       <td style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>
-                        {inv.updatedAt ? new Date(inv.updatedAt).toLocaleDateString('en-IN') : '—'}
+                        {formatISTDateTime(inv.updatedAt)}
                       </td>
                       <td>
                         <button className="btn btn-ghost btn-sm" onClick={() => handleOpenEdit(inv)}>

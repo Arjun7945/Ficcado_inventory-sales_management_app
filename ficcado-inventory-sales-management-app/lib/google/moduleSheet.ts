@@ -312,3 +312,184 @@ function columnLetter(n: number): string {
   }
   return result;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 63: Server-Side Paginated Read
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface PagedRows {
+  /** Data rows only (header excluded) */
+  rows:        string[][];
+  /** Header row (row 1 of the sheet) */
+  header:      string[];
+  /** Total data row count (excludes header) */
+  total:       number;
+  /** Total number of pages */
+  totalPages:  number;
+  /** Current page (1-indexed) */
+  page:        number;
+  pageSize:    number;
+}
+
+/**
+ * Read a specific page of rows from a module's sheet.
+ *
+ * For append-heavy log sheets (Sales Log, Activity Log, Inventory History),
+ * pass `fromEnd = true` so page 1 is the most recent data and pages increase
+ * toward older data.
+ *
+ * Behaviour:
+ * - Always fetches the header (row 1) in a separate lightweight call.
+ * - Fetches only the requested row window from the sheet, not the entire range.
+ * - Total row count is estimated from the spreadsheet's grid properties (no full fetch).
+ *
+ * @param moduleKey - The module identifier (e.g. 'sales', 'sales_log')
+ * @param page      - 1-indexed page number
+ * @param pageSize  - Rows per page (default 50)
+ * @param fromEnd   - If true, page 1 = last N rows (newest first). Default: false
+ */
+export async function readRowsPage(
+  moduleKey: string,
+  page: number = 1,
+  pageSize: number = 50,
+  fromEnd: boolean = false,
+): Promise<PagedRows> {
+  const { spreadsheetId, tabName } = await getModuleSheet(moduleKey);
+  const sheets = await getSheetsClient();
+
+  // 1. Lightweight fetch of column A to count data rows
+  const colARes = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${tabName}!A:A`,
+  });
+  const colAValues = (colARes.data.values ?? []) as string[][];
+  // Total data rows = rows with content minus header
+  const totalData = Math.max(0, colAValues.length - 1);
+  const totalPages = Math.max(1, Math.ceil(totalData / pageSize));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+
+  // 2. Fetch header separately (row 1)
+  const headerRes = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${tabName}!1:1`,
+  });
+  const header = ((headerRes.data.values ?? [[]])[0] ?? []) as string[];
+
+  // 3. Compute start/end row indices (1-indexed, inclusive, data rows start at row 2)
+  let startDataRow: number;
+  let endDataRow: number;
+
+  if (fromEnd) {
+    // Page 1 = last pageSize rows, page 2 = preceding pageSize rows, etc.
+    // endDataRow is the last data row for this page (counting from end)
+    endDataRow   = Math.max(2, totalData + 1 - (safePage - 1) * pageSize);
+    startDataRow = Math.max(2, endDataRow - pageSize + 1);
+  } else {
+    startDataRow = 2 + (safePage - 1) * pageSize;
+    endDataRow   = Math.min(startDataRow + pageSize - 1, totalData + 1);
+  }
+
+  if (startDataRow > endDataRow || totalData === 0) {
+    return { rows: [], header, total: totalData, totalPages, page: safePage, pageSize };
+  }
+
+  // 4. Fetch only the target row window
+  const dataRes = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${tabName}!${startDataRow}:${endDataRow}`,
+  });
+  let rows = ((dataRes.data.values ?? []) as string[][]);
+
+  // For fromEnd, reverse so newest is first
+  if (fromEnd) rows = rows.reverse();
+
+  return { rows, header, total: totalData, totalPages, page: safePage, pageSize };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 66: Retry-with-Backoff for Sheets API Rate Limits
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Wraps any async Sheets API operation with exponential retry backoff.
+ * Retries up to 3 times on HTTP 429 (rate limit) or 503 (transient) errors.
+ *
+ * @param fn - The async function to wrap
+ */
+export async function withRetryBackoff<T>(fn: () => Promise<T>): Promise<T> {
+  const MAX_RETRIES = 3;
+  const BASE_DELAY_MS = 1000;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await fn();
+    } catch (err: unknown) {
+      const isRetryable =
+        err instanceof Error &&
+        (err.message.includes('429') || err.message.includes('503') ||
+         err.message.includes('Rate Limit') || err.message.includes('quota'));
+
+      if (isRetryable && attempt < MAX_RETRIES) {
+        const delay = BASE_DELAY_MS * Math.pow(2, attempt); // 1s, 2s, 4s
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+  // Unreachable but TypeScript needs this
+  throw new Error('Exceeded max retries');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 66: Server-Side Dashboard Stats Cache (60s TTL)
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface StatsCache {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  stats: any;
+  computedAt: number;
+}
+
+/** Server-side in-memory dashboard stats cache. Shared across concurrent requests. */
+let _dashboardStatsCache: StatsCache | null = null;
+const DASHBOARD_CACHE_TTL_MS = 60_000; // 60 seconds
+
+/** Sales Log preview widget cache (10 most recent items) */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _salesLogPreviewCache: { logs: any[]; computedAt: number } | null = null;
+const SALES_LOG_PREVIEW_TTL_MS = 30_000; // 30 seconds
+
+export function getDashboardStatsCache(): StatsCache | null {
+  if (!_dashboardStatsCache) return null;
+  if (Date.now() - _dashboardStatsCache.computedAt > DASHBOARD_CACHE_TTL_MS) {
+    _dashboardStatsCache = null;
+    return null;
+  }
+  return _dashboardStatsCache;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function setDashboardStatsCache(stats: any): void {
+  _dashboardStatsCache = { stats, computedAt: Date.now() };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function getSalesLogPreviewCache(): { logs: any[] } | null {
+  if (!_salesLogPreviewCache) return null;
+  if (Date.now() - _salesLogPreviewCache.computedAt > SALES_LOG_PREVIEW_TTL_MS) {
+    _salesLogPreviewCache = null;
+    return null;
+  }
+  return _salesLogPreviewCache;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function setSalesLogPreviewCache(logs: any[]): void {
+  _salesLogPreviewCache = { logs, computedAt: Date.now() };
+}
+
+export function bustSalesLogPreviewCache(): void {
+  _salesLogPreviewCache = null;
+}
+

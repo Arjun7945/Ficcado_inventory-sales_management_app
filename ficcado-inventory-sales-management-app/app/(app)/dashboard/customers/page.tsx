@@ -10,6 +10,7 @@
 import { useState, useEffect } from 'react';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
+import { formatISTDateTime } from '@/lib/dateUtils';
 
 interface CustomerRecord {
   sno:            string;
@@ -384,10 +385,10 @@ export default function CustomersPage() {
                                 ₹{totalVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                               </td>
                               <td style={{ fontSize: 11.5, color: 'var(--color-ink-muted)' }}>
-                                {ord.createdAt ? new Date(ord.createdAt).toLocaleDateString('en-IN') : '—'}
+                                {formatISTDateTime(ord.createdAt)}
                               </td>
                               <td style={{ fontSize: 11.5, color: 'var(--color-ink-muted)' }}>
-                                {ord.updatedAt ? new Date(ord.updatedAt).toLocaleDateString('en-IN') : '—'}
+                                {formatISTDateTime(ord.updatedAt)}
                               </td>
                               <td style={{ textAlign: 'center' }}>
                                 <span className="badge badge-neutral" style={{ fontSize: 11 }}>{ord.modeOfPayment || '—'}</span>
