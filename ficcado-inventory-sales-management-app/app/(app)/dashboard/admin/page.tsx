@@ -834,8 +834,8 @@ export default function AdminControlPage() {
                 <div className="form-group">
                   <label className="form-label">Email Notifications</label>
                   <select className="form-select" value={editNotifications} onChange={(e) => setEditNotifications(e.target.value)}>
-                    <option value="Enabled">Enabled — Receive daily XLSX reports by email</option>
-                    <option value="Disabled">Disabled — Do not receive email reports</option>
+                    <option value="Enabled">Enabled — Receive all email notifications (Team notes, reports, etc.)</option>
+                    <option value="Disabled">Disabled — Do not receive any email notifications</option>
                   </select>
                 </div>
               </div>

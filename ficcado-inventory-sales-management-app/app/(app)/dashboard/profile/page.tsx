@@ -142,8 +142,8 @@ export default function ProfilePage() {
             <div className="form-group">
               <label className="form-label">Email Notifications</label>
               <select className="form-select" value={notifications} onChange={(e) => setNotifications(e.target.value)}>
-                <option value="Enabled">Enabled — receive daily reports by email</option>
-                <option value="Disabled">Disabled — do not receive email reports</option>
+                <option value="Enabled">Enabled — Receive all email notifications (Team notes, reports, etc.)</option>
+                <option value="Disabled">Disabled — Do not receive any email notifications</option>
               </select>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>

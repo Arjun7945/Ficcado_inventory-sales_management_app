@@ -14,11 +14,15 @@ interface ActivityEntry {
   action:     string;
   module:     string;
   recordId:   string;
+  message?:   string;
   timestamp:  string;
   read:       boolean;
 }
 
 function formatActivityMessage(entry: ActivityEntry): string {
+  if (entry.message && entry.message.trim()) {
+    return entry.message;
+  }
   const date = new Date(entry.timestamp);
   const dateStr = date.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const timeStr = date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
@@ -59,6 +63,7 @@ export default function NotificationBell() {
           action:    r.action    || 'acted',
           module:    r.module    || r.moduleKey || 'a sheet',
           recordId:  r.recordId  || '',
+          message:   r.message   || '',
           timestamp: r.timestamp || new Date().toISOString(),
           read:      false,
         })));

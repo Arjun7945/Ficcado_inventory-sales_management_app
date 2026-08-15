@@ -21,9 +21,12 @@ export async function GET() {
     const rows = await readAllRows('keep_notes');
     const notes = rows.slice(1).map((row, i) => ({
       rowIndex:  i + 2,
+      sno:       row[COL.sno]       || String(i + 1),
       content:   row[COL.content]   ?? '',
       createdBy: row[COL.createdBy] ?? '',
       createdAt: row[COL.createdAt] ?? '',
+      updatedBy: row[COL.updatedBy] ?? '',
+      updatedAt: row[COL.updatedAt] ?? '',
     })).filter((n) => n.content).reverse();
     return Response.json({ notes });
   } catch (err) {
@@ -50,7 +53,17 @@ export async function POST(request: Request) {
       String(rows.length), noteContent, admin.name, now, admin.name, now,
     ]]);
 
-    await logActivity({ adminName: admin.name, action: 'created', module: 'Keep Notes', moduleKey: 'keep_notes', recordId: 'Note' });
+    const snippet = noteContent.trim().replace(/\s+/g, ' ');
+    const shortSnippet = snippet.length > 50 ? snippet.slice(0, 50) + '...' : snippet;
+
+    await logActivity({
+      adminName: admin.name,
+      action: 'created',
+      module: 'Keep Notes',
+      moduleKey: 'keep_notes',
+      recordId: 'Note',
+      customMessage: `${admin.name} created a new team note: "${shortSnippet}"`,
+    });
     return Response.json({ success: true, message: 'Note saved.' }, { status: 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

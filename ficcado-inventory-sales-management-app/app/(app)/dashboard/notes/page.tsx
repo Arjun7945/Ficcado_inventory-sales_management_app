@@ -37,6 +37,10 @@ export default function NotesPage() {
   const [editSaving, setEditSaving]   = useState(false);
   const [deleting, setDeleting]       = useState<string | null>(null);
 
+  // Email Notification states
+  const [notifyingId, setNotifyingId] = useState<string | null>(null);
+  const [notifyFeedback, setNotifyFeedback] = useState<Record<string, { type: 'success' | 'error'; message: string }>>({});
+
   async function loadNotes() {
     setLoading(true);
     try {
@@ -104,6 +108,39 @@ export default function NotesPage() {
     finally { setDeleting(null); }
   }
 
+  async function handleNotifyEmail(note: Note) {
+    const targetId = note.sno || note.rowIndex;
+    const strId = String(targetId);
+    setNotifyingId(strId);
+    setNotifyFeedback((prev) => { const n = { ...prev }; delete n[strId]; return n; });
+
+    try {
+      const res = await fetch(`/api/notes/${encodeURIComponent(strId)}/notify-email`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setNotifyFeedback((prev) => ({
+          ...prev,
+          [strId]: { type: 'error', message: data.error || data.detail || 'Failed to send email.' },
+        }));
+      } else {
+        setNotifyFeedback((prev) => ({
+          ...prev,
+          [strId]: { type: 'success', message: data.message || 'Notification email sent!' },
+        }));
+      }
+    } catch {
+      setNotifyFeedback((prev) => ({
+        ...prev,
+        [strId]: { type: 'error', message: "Couldn't connect to server." },
+      }));
+    } finally {
+      setNotifyingId(null);
+    }
+  }
+
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
       <MobileBackButton />
@@ -153,9 +190,12 @@ export default function NotesPage() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {notes.map((note, idx) => {
-            const isCreator = currentAdmin && (
-              (currentAdmin.name || '').trim().toLowerCase() === (note.createdBy || '').trim().toLowerCase() ||
-              currentAdmin.role === 'superadmin'
+            const adminNameLower = (currentAdmin?.name || '').trim().toLowerCase();
+            const noteCreatorLower = (note.createdBy || '').trim().toLowerCase();
+            const isCreator = Boolean(
+              currentAdmin &&
+              (adminNameLower === noteCreatorLower ||
+                (adminNameLower.split(/\s+/)[0] === noteCreatorLower.split(/\s+/)[0] && adminNameLower.split(/\s+/)[0].length >= 2))
             );
 
             const noteKey = note.sno || note.rowIndex || idx;
@@ -187,7 +227,7 @@ export default function NotesPage() {
                     <div style={{ fontSize: 14, lineHeight: 1.7, whiteSpace: 'pre-wrap', marginBottom: 10 }}>
                       {note.content}
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                       <div style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>
                         {note.createdBy} · {formatISTDateTime(note.createdAt)}
                         {note.updatedBy && note.updatedBy !== note.createdBy && (
@@ -195,7 +235,20 @@ export default function NotesPage() {
                         )}
                       </div>
                       {isCreator && (
-                        <div style={{ display: 'flex', gap: 6 }}>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            style={{ color: 'var(--color-brand-primary)', border: '1px solid var(--color-border)', fontSize: 12 }}
+                            onClick={() => handleNotifyEmail(note)}
+                            disabled={notifyingId === String(targetId)}
+                          >
+                            {notifyingId === String(targetId) ? (
+                              <LoadingGecko size="inline" label="Sending email…" />
+                            ) : (
+                              '📧 Notify All via Email'
+                            )}
+                          </button>
                           <button className="btn btn-ghost btn-sm" onClick={() => startEdit(note)}>Edit</button>
                           <button className="btn btn-danger btn-sm" onClick={() => handleDeleteNote(note)} disabled={deleting === String(targetId)}>
                             {deleting === String(targetId) ? '…' : 'Delete'}
@@ -203,6 +256,31 @@ export default function NotesPage() {
                         </div>
                       )}
                     </div>
+
+                    {notifyFeedback[String(targetId)] && (
+                      <div
+                        style={{
+                          marginTop: 10,
+                          fontSize: 12,
+                          padding: '6px 10px',
+                          borderRadius: 6,
+                          background: notifyFeedback[String(targetId)].type === 'success' ? 'rgba(47, 125, 79, 0.08)' : 'rgba(176, 64, 58, 0.08)',
+                          color: notifyFeedback[String(targetId)].type === 'success' ? 'var(--color-success)' : 'var(--color-error)',
+                          border: `1px solid ${notifyFeedback[String(targetId)].type === 'success' ? 'rgba(47, 125, 79, 0.3)' : 'rgba(176, 64, 58, 0.3)'}`,
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span>{notifyFeedback[String(targetId)].type === 'success' ? '✓ ' : '⚠️ '}{notifyFeedback[String(targetId)].message}</span>
+                        <button
+                          onClick={() => setNotifyFeedback((prev) => { const n = { ...prev }; delete n[String(targetId)]; return n; })}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, lineHeight: 1, color: 'inherit', marginLeft: 8 }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )}
                   </>
                 )}
               </div>

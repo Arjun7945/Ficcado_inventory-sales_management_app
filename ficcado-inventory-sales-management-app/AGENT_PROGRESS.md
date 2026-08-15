@@ -327,3 +327,13 @@ All Phase 62 through Phase 67 requirements from `Part7_of_implementation_ficcado
 - `node node_modules/typescript/bin/tsc --noEmit` → **PASSED. Zero errors.**
 - All new modules (`lib/dateUtils.ts`, `lib/google/searchIndex.ts`, `lib/google/archival.ts`) compile cleanly.
 - All upgraded API routes compile cleanly.
+
+### Keep Notes — On-Demand Email Notifications & Notification Bell Alerts
+- Created `POST /api/notes/[id]/notify-email`:
+  - Triggers a professional HTML email notification to all registered admins (excluding note creator/current user).
+  - Sent via connected Nodemailer / Gmail SMTP credentials stored in AppMeta.
+  - Button `📧 Notify All via Email` added to each note card in Keep Notes page (`app/(app)/dashboard/notes/page.tsx`).
+  - Interactive state management with loading spinner and per-note inline feedback toast.
+- In-App Notification Bell Alert on Note Create/Update:
+  - Enhanced `POST /api/notes` and `PUT /api/notes/[id]` to log detailed custom messages (`logActivity`) with note content snippets.
+  - Updated `components/NotificationBell.tsx` to handle custom activity messages and render unread note alerts cleanly in the notification bell dropdown.
