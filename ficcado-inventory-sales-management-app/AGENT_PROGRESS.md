@@ -337,3 +337,36 @@ All Phase 62 through Phase 67 requirements from `Part7_of_implementation_ficcado
 - In-App Notification Bell Alert on Note Create/Update:
   - Enhanced `POST /api/notes` and `PUT /api/notes/[id]` to log detailed custom messages (`logActivity`) with note content snippets.
   - Updated `components/NotificationBell.tsx` to handle custom activity messages and render unread note alerts cleanly in the notification bell dropdown.
+
+## 2026-08-15 - PART 8 COMPLETE
+All Phase 68 through Phase 73 requirements from `Part8_of_implementation_ficcado.md` fully implemented and verified:
+
+1. **Centralized Module Registry (Phase 68)**:
+   - Created `lib/google/moduleRegistry.ts` defining all 14 app modules (`items`, `inventory`, `warehouse`, `sales`, `replacement`, `return_refund`, `admin_info`, `keep_notes`, `activity_log`, `damaged_products`, `inventory_history`, `customer_info`, `sales_log`, `sales_search_index`).
+   - Exported dynamic helpers (`getRegisteredModules()`, `getRequiredTabNames()`, `getModuleHeadersMap()`, etc.).
+   - Refactored `app/api/setup/register-sheet/route.ts` to import schemas directly from the registry.
+
+2. **Sheet Configuration Table Redesign (Phase 68 & A2)**:
+   - Completely removed legacy per-row `Actions` column, edit modal, and associated handlers (`openSheetEdit`, `handleSaveSheet`, `handleTestConnection`).
+   - Converted Sheet Configuration table into a clean, read-only reference view displaying `Module`, `Display Name`, `Spreadsheet ID`, and `Tab Name`.
+
+3. **Global "Update Spreadsheet ID" & Dynamic Tab Existence Check (Phases 69 & 70 / A3–A5)**:
+   - Added **"Update Spreadsheet ID"** section above the table with service-account access checking via `POST /api/sheet-config/global` (`action: 'check'`).
+   - Implemented **Fresh Spreadsheet Path** (`action: 'generate-fresh'`): automatically creates all 14 required module tabs with headers & Part 5 sheet styling (`formatAllSheets`), displaying `<LoadingGecko />` progress messaging.
+
+4. **3-Option Prompt Modal & Destructive Confirmation Gate (Phase 71 / A6)**:
+   - When target spreadsheet contains existing tabs, prompts admin with 3 choices:
+     1. **"Remove all & regenerate"**: Destructive path requiring secondary text input confirmation typing **`REMOVE`** before execution (`action: 'remove-and-regenerate'`). Safely deletes existing tabs (using temporary reset tab to satisfy Sheets API 1-tab minimum), generates fresh module tabs with headers & styling.
+     2. **"Don't remove & use it"**: Re-links global Spreadsheet ID reference without modifying any existing tabs or data (`action: 'use-existing'`).
+     3. **"Cancel operation"**: Aborts operation with zero changes.
+
+5. **Global ID Propagation & Detailed Activity Logging (Phase 72 / A7 & A9)**:
+   - Added `updateGlobalSpreadsheetId()` in `lib/google/sheetConfig.ts` to update all module mappings in `SheetConfig` tab and bust in-memory configuration cache.
+   - Verified tab creation targets `addSheet` on existing files and never attempts `drive.files.create` to create new spreadsheet files (A8).
+   - Logged high-impact admin activity entries to `activity_log` for each update path (e.g. *"Admin {name} updated the Sheet Configuration spreadsheet from {oldID} to {newID} using 'Remove all & regenerate.'"*).
+
+6. **Audit & Build Verification (Phase 73)**:
+   - `node node_modules/typescript/bin/tsc --noEmit` → **PASSED. Zero errors.**
+   - All legacy per-row editing handlers and dead routes purged.
+   - Visually verified styling against `DESIGN.md` (colors, typography, badges, modals, and `<LoadingGecko />`).
+

@@ -111,14 +111,18 @@ export default function AdminControlPage() {
     }
   }
 
-  // Sheet config editing
-  const [editingSheet, setEditingSheet]   = useState<SheetConfigEntry | null>(null);
-  const [sheetEditId, setSheetEditId]     = useState('');
-  const [sheetEditTab, setSheetEditTab]   = useState('');
-  const [sheetEditName, setSheetEditName] = useState('');
-  const [testingConn, setTestingConn]     = useState(false);
-  const [testResult, setTestResult]       = useState<{ ok: boolean; message: string } | null>(null);
-  const [savingSheet, setSavingSheet]     = useState(false);
+  // Global Sheet Config Update State (Part 8)
+  const [newGlobalSpreadsheetId, setNewGlobalSpreadsheetId] = useState('');
+  const [checkingSheet, setCheckingSheet]                   = useState(false);
+  const [updatingSheet, setUpdatingSheet]                   = useState(false);
+  const [sheetUpdateError, setSheetUpdateError]             = useState<string | null>(null);
+
+  // Prompt modal state for existing tabs
+  const [showPromptModal, setShowPromptModal]               = useState(false);
+  const [promptTargetId, setPromptTargetId]                 = useState('');
+  const [existingTabsFound, setExistingTabsFound]           = useState<string[]>([]);
+  const [selectedOption, setSelectedOption]                 = useState<'remove' | 'reuse' | null>(null);
+  const [removeConfirmText, setRemoveConfirmText]           = useState('');
 
   // Reports
   const [downloadingModule, setDownloadingModule]   = useState<string | null>(null);
@@ -205,55 +209,131 @@ export default function AdminControlPage() {
     } catch { setError({ message: "Couldn't delete admin." }); }
   }
 
-  function openSheetEdit(sh: SheetConfigEntry) {
-    setEditingSheet(sh);
-    setSheetEditId(sh.spreadsheetId);
-    setSheetEditTab(sh.tabName);
-    setSheetEditName(sh.displayName);
-    setTestResult(null);
-  }
-
-  async function handleTestConnection() {
-    if (!sheetEditId.trim() || !sheetEditTab.trim()) {
-      setTestResult({ ok: false, message: 'Enter a Spreadsheet ID and Tab Name first.' });
+  async function handleStartGlobalUpdate() {
+    setSheetUpdateError(null);
+    const targetId = newGlobalSpreadsheetId.trim();
+    if (!targetId) {
+      setSheetUpdateError('Enter a valid Google Spreadsheet ID or URL first.');
       return;
     }
-    setTestingConn(true);
-    setTestResult(null);
+
+    const currentGlobalId = sheets[0]?.spreadsheetId || '';
+
+    setCheckingSheet(true);
     try {
-      const res  = await fetch('/api/sheet-config/test', {
+      const res = await fetch('/api/sheet-config/global', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ spreadsheetId: sheetEditId, tabName: sheetEditTab }),
+        body: JSON.stringify({ action: 'check', rawSpreadsheetId: targetId }),
       });
       const data = await res.json();
-      setTestResult({ ok: res.ok, message: data.message || data.error || 'Unknown result' });
+      if (!res.ok) {
+        setSheetUpdateError(data.error || 'Failed to check spreadsheet access.');
+        return;
+      }
+
+      if (data.isFresh) {
+        // Fresh spreadsheet path — generate tabs automatically
+        await handleExecuteFresh(data.spreadsheetId, currentGlobalId);
+      } else {
+        // Existing tabs path — prompt admin with 3 options
+        setPromptTargetId(data.spreadsheetId);
+        setExistingTabsFound(data.existingTabs || []);
+        setSelectedOption(null);
+        setRemoveConfirmText('');
+        setShowPromptModal(true);
+      }
     } catch {
-      setTestResult({ ok: false, message: "Couldn't reach server." });
+      setSheetUpdateError("Couldn't reach server to verify spreadsheet.");
     } finally {
-      setTestingConn(false);
+      setCheckingSheet(false);
     }
   }
 
-  async function handleSaveSheet() {
-    if (!editingSheet) return;
-    if (!sheetEditId.trim())  { setTestResult({ ok: false, message: 'Spreadsheet ID is required.' }); return; }
-    if (!sheetEditTab.trim()) { setTestResult({ ok: false, message: 'Tab name is required.' }); return; }
-
-    setSavingSheet(true);
+  async function handleExecuteFresh(targetId: string, oldId: string) {
+    setUpdatingSheet(true);
+    setSheetUpdateError(null);
     try {
-      const res  = await fetch('/api/sheet-config', {
-        method: 'PUT',
+      const res = await fetch('/api/sheet-config/global', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ moduleKey: editingSheet.moduleKey, displayName: sheetEditName || editingSheet.displayName, spreadsheetId: sheetEditId, tabName: sheetEditTab }),
+        body: JSON.stringify({ action: 'generate-fresh', rawSpreadsheetId: targetId, oldSpreadsheetId: oldId }),
       });
       const data = await res.json();
-      if (!res.ok) { setTestResult({ ok: false, message: data.error || 'Save failed.' }); return; }
-      setSuccess(`Sheet config for '${editingSheet.displayName}' updated.`);
-      setEditingSheet(null);
+      if (!res.ok) {
+        setSheetUpdateError(data.error || 'Failed to generate tabs in spreadsheet.');
+        return;
+      }
+      setSuccess(data.message || 'Spreadsheet updated successfully.');
+      setNewGlobalSpreadsheetId('');
       loadData();
-    } catch { setTestResult({ ok: false, message: "Couldn't save changes." }); }
-    finally { setSavingSheet(false); }
+    } catch {
+      setSheetUpdateError("Couldn't execute tab generation.");
+    } finally {
+      setUpdatingSheet(false);
+    }
+  }
+
+  async function handleExecuteRemoveRegenerate() {
+    if (removeConfirmText.trim() !== 'REMOVE') return;
+    const oldId = sheets[0]?.spreadsheetId || '';
+    setUpdatingSheet(true);
+    setSheetUpdateError(null);
+    try {
+      const res = await fetch('/api/sheet-config/global', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'remove-and-regenerate',
+          rawSpreadsheetId: promptTargetId,
+          confirmationText: removeConfirmText.trim(),
+          oldSpreadsheetId: oldId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSheetUpdateError(data.error || 'Failed to remove and regenerate tabs.');
+        return;
+      }
+      setSuccess(data.message || 'Spreadsheet tabs removed and regenerated.');
+      setShowPromptModal(false);
+      setNewGlobalSpreadsheetId('');
+      loadData();
+    } catch {
+      setSheetUpdateError("Couldn't execute remove & regenerate operation.");
+    } finally {
+      setUpdatingSheet(false);
+    }
+  }
+
+  async function handleExecuteUseExisting() {
+    const oldId = sheets[0]?.spreadsheetId || '';
+    setUpdatingSheet(true);
+    setSheetUpdateError(null);
+    try {
+      const res = await fetch('/api/sheet-config/global', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'use-existing',
+          rawSpreadsheetId: promptTargetId,
+          oldSpreadsheetId: oldId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSheetUpdateError(data.error || 'Failed to update Spreadsheet ID.');
+        return;
+      }
+      setSuccess(data.message || 'Spreadsheet ID reference updated.');
+      setShowPromptModal(false);
+      setNewGlobalSpreadsheetId('');
+      loadData();
+    } catch {
+      setSheetUpdateError("Couldn't update Spreadsheet ID reference.");
+    } finally {
+      setUpdatingSheet(false);
+    }
   }
 
   async function handleDownloadReport(moduleKey: string) {
@@ -399,6 +479,57 @@ export default function AdminControlPage() {
       {/* SHEETS TAB */}
       {activeTab === 'sheets' && (
         <div>
+          {/* Update Spreadsheet ID Section */}
+          <div className="card" style={{ marginBottom: 16 }}>
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, marginBottom: 6, color: 'var(--color-ink)' }}>
+              Update Spreadsheet ID
+            </h3>
+            <p style={{ fontSize: 13, color: 'var(--color-ink-muted)', marginBottom: 16 }}>
+              Enter a new Google Spreadsheet ID to update the single data source for all application modules. Make sure the spreadsheet is shared with the service account as Editor first.
+            </p>
+
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <label className="form-label">New Spreadsheet ID or Full URL</label>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  style={{ flex: 1, minWidth: 280 }}
+                  value={newGlobalSpreadsheetId}
+                  onChange={(e) => { setNewGlobalSpreadsheetId(e.target.value); setSheetUpdateError(null); }}
+                  placeholder="e.g. 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms or full URL"
+                  disabled={checkingSheet || updatingSheet}
+                />
+                <button
+                  className="btn btn-primary"
+                  onClick={handleStartGlobalUpdate}
+                  disabled={checkingSheet || updatingSheet || !newGlobalSpreadsheetId.trim()}
+                >
+                  {checkingSheet ? (
+                    <LoadingGecko size="inline" label="Verifying access…" />
+                  ) : updatingSheet ? (
+                    <LoadingGecko size="inline" label="Updating tabs…" />
+                  ) : (
+                    'Update and Regenerate'
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {updatingSheet && !showPromptModal && (
+              <div style={{ padding: 16, textAlign: 'center', background: 'var(--color-bg)', borderRadius: 8, marginTop: 12 }}>
+                <LoadingGecko label="Generating all the tabs — please wait until the new spreadsheet's tabs are ready." />
+              </div>
+            )}
+
+            {sheetUpdateError && (
+              <div style={{ marginTop: 12 }}>
+                <ErrorMessage message={sheetUpdateError} variant="error" onDismiss={() => setSheetUpdateError(null)} />
+              </div>
+            )}
+          </div>
+
+          {/* Read-Only Table */}
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
             <div style={{ overflowX: 'auto' }}>
               <table className="data-table">
@@ -408,7 +539,6 @@ export default function AdminControlPage() {
                     <th>Display Name</th>
                     <th>Spreadsheet ID</th>
                     <th>Tab Name</th>
-                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -416,14 +546,22 @@ export default function AdminControlPage() {
                     <tr key={sh.moduleKey}>
                       <td style={{ fontWeight: 600, textTransform: 'capitalize' }}>{sh.moduleKey}</td>
                       <td>{sh.displayName}</td>
-                      <td className="tabular-nums" style={{ fontSize: 12, fontFamily: 'monospace', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <td
+                        className="tabular-nums"
+                        style={{
+                          fontSize: 12,
+                          fontFamily: 'monospace',
+                          maxWidth: 240,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          color: 'var(--color-brand-primary)',
+                        }}
+                      >
                         {sh.spreadsheetId}
                       </td>
-                      <td><span className="badge badge-neutral">{sh.tabName}</span></td>
                       <td>
-                        <button className="btn btn-secondary btn-sm" onClick={() => openSheetEdit(sh)}>
-                          Edit
-                        </button>
+                        <span className="badge badge-neutral">{sh.tabName}</span>
                       </td>
                     </tr>
                   ))}
@@ -432,39 +570,152 @@ export default function AdminControlPage() {
             </div>
           </div>
 
-          {/* Sheet Edit Panel */}
-          {editingSheet && (
-            <div className="card" style={{ marginTop: 16 }}>
-              <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 16, marginBottom: 16 }}>
-                Edit Sheet Config: {editingSheet.displayName}
-              </h3>
-              <div className="form-group">
-                <label className="form-label">Display Name</label>
-                <input type="text" className="form-input" value={sheetEditName} onChange={(e) => setSheetEditName(e.target.value)} />
-              </div>
-              <div className="grid-form-2">
-                <div className="form-group">
-                  <label className="form-label">Spreadsheet ID</label>
-                  <input type="text" className="form-input" value={sheetEditId} onChange={(e) => { setSheetEditId(e.target.value); setTestResult(null); }} placeholder="Google Sheets file ID" />
+          {/* 3-Option Modal for Existing Tabs */}
+          {showPromptModal && (
+            <div className="modal-backdrop" onClick={() => { if (!updatingSheet) setShowPromptModal(false); }}>
+              <div className="modal" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+                <div className="modal-header">
+                  <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 18, color: 'var(--color-ink)' }}>
+                    Spreadsheet Contains Existing Tabs
+                  </h2>
+                  <button className="btn-icon" onClick={() => setShowPromptModal(false)} disabled={updatingSheet}>×</button>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Tab / Sheet Name</label>
-                  <input type="text" className="form-input" value={sheetEditTab} onChange={(e) => { setSheetEditTab(e.target.value); setTestResult(null); }} placeholder="Exact tab name" />
+
+                <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div style={{ background: 'var(--color-bg)', padding: '12px 14px', borderRadius: 8, border: '1px solid var(--color-border)', fontSize: 13, color: 'var(--color-ink-muted)' }}>
+                    <div>Target spreadsheet ID:</div>
+                    <div style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12, color: 'var(--color-brand-primary)', wordBreak: 'break-all', marginTop: 2, marginBottom: 6 }}>
+                      {promptTargetId}
+                    </div>
+                    <div>
+                      Found <strong>{existingTabsFound.length}</strong> existing tab(s). Choose how you would like to proceed:
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {/* Option 1: Remove all & regenerate */}
+                    <div
+                      style={{
+                        padding: 16,
+                        borderRadius: 8,
+                        border: selectedOption === 'remove' ? '2px solid var(--color-error)' : '1px solid var(--color-border)',
+                        background: selectedOption === 'remove' ? 'rgba(176, 64, 58, 0.04)' : 'var(--color-surface)',
+                        cursor: updatingSheet ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                      onClick={() => { if (!updatingSheet) setSelectedOption('remove'); }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 700, color: 'var(--color-error)' }}>
+                        <input
+                          type="radio"
+                          name="spreadsheet_option"
+                          checked={selectedOption === 'remove'}
+                          onChange={() => setSelectedOption('remove')}
+                          disabled={updatingSheet}
+                          style={{ accentColor: 'var(--color-error)', width: 16, height: 16 }}
+                        />
+                        1. Remove all & regenerate
+                      </div>
+                      <p style={{ fontSize: 12, color: 'var(--color-ink-muted)', marginTop: 6, marginLeft: 26, lineHeight: 1.5 }}>
+                        Delete every existing tab in that spreadsheet, then create fresh required module tabs from scratch. <strong style={{ color: 'var(--color-error)' }}>This action is destructive and permanent.</strong>
+                      </p>
+
+                      {selectedOption === 'remove' && (
+                        <div style={{ marginTop: 14, marginLeft: 26, padding: 12, background: 'rgba(176, 64, 58, 0.08)', borderRadius: 6, border: '1px solid rgba(176, 64, 58, 0.3)' }} onClick={(e) => e.stopPropagation()}>
+                          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-error)', display: 'block', marginBottom: 8 }}>
+                            Type "REMOVE" to confirm deletion of all existing tabs:
+                          </label>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <input
+                              type="text"
+                              className="form-input"
+                              style={{ textTransform: 'uppercase', flex: 1, letterSpacing: '0.05em', fontWeight: 600 }}
+                              placeholder="REMOVE"
+                              value={removeConfirmText}
+                              onChange={(e) => setRemoveConfirmText(e.target.value)}
+                              disabled={updatingSheet}
+                            />
+                            <button
+                              className="btn btn-danger btn-sm"
+                              onClick={handleExecuteRemoveRegenerate}
+                              disabled={updatingSheet || removeConfirmText.trim() !== 'REMOVE'}
+                            >
+                              {updatingSheet ? <LoadingGecko size="inline" label="Regenerating…" /> : 'Confirm & Regenerate'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Option 2: Don't remove & use it */}
+                    <div
+                      style={{
+                        padding: 16,
+                        borderRadius: 8,
+                        border: selectedOption === 'reuse' ? '2px solid var(--color-brand-primary)' : '1px solid var(--color-border)',
+                        background: selectedOption === 'reuse' ? 'rgba(43, 98, 198, 0.04)' : 'var(--color-surface)',
+                        cursor: updatingSheet ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                      onClick={() => { if (!updatingSheet) setSelectedOption('reuse'); }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 700, color: 'var(--color-brand-primary)' }}>
+                        <input
+                          type="radio"
+                          name="spreadsheet_option"
+                          checked={selectedOption === 'reuse'}
+                          onChange={() => setSelectedOption('reuse')}
+                          disabled={updatingSheet}
+                          style={{ accentColor: 'var(--color-brand-primary)', width: 16, height: 16 }}
+                        />
+                        2. Don't remove & use it
+                      </div>
+                      <p style={{ fontSize: 12, color: 'var(--color-ink-muted)', marginTop: 6, marginLeft: 26, lineHeight: 1.5 }}>
+                        Keep every existing tab and its data completely untouched. Simply update the app&apos;s global Spreadsheet ID reference going forward.
+                      </p>
+
+                      {selectedOption === 'reuse' && (
+                        <div style={{ marginTop: 14, marginLeft: 26 }} onClick={(e) => e.stopPropagation()}>
+                          <button
+                            className="btn btn-primary btn-sm"
+                            onClick={handleExecuteUseExisting}
+                            disabled={updatingSheet}
+                          >
+                            {updatingSheet ? <LoadingGecko size="inline" label="Updating ID…" /> : 'Use Existing Spreadsheet'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Option 3: Cancel operation */}
+                    <div
+                      style={{
+                        padding: 14,
+                        borderRadius: 8,
+                        border: '1px solid var(--color-border)',
+                        background: 'var(--color-surface)',
+                        cursor: updatingSheet ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                      onClick={() => { if (!updatingSheet) setShowPromptModal(false); }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 600, color: 'var(--color-ink-muted)' }}>
+                        <span style={{ fontSize: 14 }}>✕</span>
+                        3. Cancel operation
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              {testResult && (
-                <div style={{ padding: '8px 12px', borderRadius: 6, marginBottom: 12, background: testResult.ok ? 'rgba(76,175,80,0.12)' : 'rgba(229,57,53,0.12)', color: testResult.ok ? '#4CAF50' : '#e53935', fontSize: 13 }}>
-                  {testResult.ok ? '✓' : '✗'} {testResult.message}
+
+                <div className="modal-footer">
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => setShowPromptModal(false)}
+                    disabled={updatingSheet}
+                  >
+                    Cancel
+                  </button>
                 </div>
-              )}
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <button className="btn btn-ghost btn-sm" onClick={handleTestConnection} disabled={testingConn}>
-                  {testingConn ? <LoadingGecko size="inline" label="Testing…" /> : '🔗 Test Connection'}
-                </button>
-                <button className="btn btn-primary btn-sm" onClick={handleSaveSheet} disabled={savingSheet}>
-                  {savingSheet ? <LoadingGecko size="inline" label="Saving…" /> : 'Save Changes'}
-                </button>
-                <button className="btn btn-ghost btn-sm" onClick={() => setEditingSheet(null)}>Cancel</button>
               </div>
             </div>
           )}

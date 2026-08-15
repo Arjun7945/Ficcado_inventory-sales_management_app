@@ -152,3 +152,90 @@ export async function getAllModuleConfigs(): Promise<ModuleSheetConfig[]> {
   const map = await getSheetConfig();
   return Array.from(map.values());
 }
+
+/**
+ * Update the global Spreadsheet ID for all modules in SheetConfig.
+ * Preserves tab names and display names while propagating the single global ID.
+ */
+export async function updateGlobalSpreadsheetId(
+  newSpreadsheetId: string,
+  updatedBy: string
+): Promise<void> {
+  const { spreadsheetId: bootstrapId } = await getBootstrapSpreadsheetId();
+  const sheets = await getSheetsClient();
+  const updatedAt = new Date().toISOString();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: bootstrapId,
+    range: `${SHEET_CONFIG_TAB}!A:F`,
+  });
+
+  const rows = res.data.values ?? [];
+  const existingMap = new Map<string, number>(); // moduleKey -> rowIndex (1-indexed)
+
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0]) {
+      existingMap.set(String(rows[i][0]), i + 1);
+    }
+  }
+
+  // Get dynamic module registry to ensure every current module is updated or appended
+  const { getRegisteredModules } = await import('./moduleRegistry');
+  const registeredModules = getRegisteredModules();
+
+  const updateRequests: any[] = [];
+  const appendRowsList: any[][] = [];
+
+  for (const mod of registeredModules) {
+    const rowIndex = existingMap.get(mod.key);
+    if (rowIndex) {
+      // Get existing display name and tab name if present, else fallback to registry
+      const existingRowData = rows[rowIndex - 1];
+      const displayName = String(existingRowData[1] || mod.displayName);
+      const tabName = String(existingRowData[3] || mod.tabName);
+
+      updateRequests.push({
+        range: `${SHEET_CONFIG_TAB}!A${rowIndex}:F${rowIndex}`,
+        values: [[mod.key, displayName, newSpreadsheetId, tabName, updatedAt, updatedBy]],
+      });
+      existingMap.delete(mod.key);
+    } else {
+      appendRowsList.push([mod.key, mod.displayName, newSpreadsheetId, mod.tabName, updatedAt, updatedBy]);
+    }
+  }
+
+  // Update any remaining existing rows that might not be in MODULE_REGISTRY
+  for (const [key, rowIndex] of existingMap.entries()) {
+    const existingRowData = rows[rowIndex - 1];
+    const displayName = String(existingRowData[1] || key);
+    const tabName = String(existingRowData[3] || key);
+    updateRequests.push({
+      range: `${SHEET_CONFIG_TAB}!A${rowIndex}:F${rowIndex}`,
+      values: [[key, displayName, newSpreadsheetId, tabName, updatedAt, updatedBy]],
+    });
+  }
+
+  // Perform batch updates for existing rows
+  if (updateRequests.length > 0) {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: bootstrapId,
+      requestBody: {
+        valueInputOption: 'RAW',
+        data: updateRequests,
+      },
+    });
+  }
+
+  // Append any missing registered module rows
+  if (appendRowsList.length > 0) {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: bootstrapId,
+      range: `${SHEET_CONFIG_TAB}!A:F`,
+      valueInputOption: 'RAW',
+      requestBody: { values: appendRowsList },
+    });
+  }
+
+  bustConfigCache();
+}
+
