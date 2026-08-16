@@ -90,18 +90,9 @@ export const SalesSchema = z.object({
   fulfilmentSource:        requiredString('Fulfilment source'),
   customerEmail:           z.string().email('Enter a valid email address').optional().or(z.literal('')),
   discount:                z.coerce.number().min(0, 'Discount cannot be negative').default(0),
+  receivedBy:              z.string().optional(),
+  remarks:                 z.string().optional(),
 }).refine(
-  (data) => {
-    if (data.paymentStatus === 'Paid' && data.modeOfPayment !== 'Cash' && data.modeOfPayment !== 'N/A' && !data.transactionId) {
-      return false;
-    }
-    return true;
-  },
-  {
-    message: 'Transaction ID is required for digital payments',
-    path: ['transactionId'],
-  }
-).refine(
   (data) => {
     if (data.deliveryChargeToggle && data.deliveryChargeAmount <= 0) {
       return false;

@@ -95,6 +95,8 @@ export async function GET(
       discount:             parseFloat(getCellByHeader(row, headerMap, 'Discount', '0')) || 0,
       customerEmail:        getCellByHeader(row, headerMap, 'Customer Email'),
       itemPrices:           getCellByHeader(row, headerMap, 'Item Prices'),
+      receivedBy:           getCellByHeader(row, headerMap, 'Received By') || (getCellByHeader(row, headerMap, 'Payment Status') === 'Paid' ? getCellByHeader(row, headerMap, 'Created By (Admin)') : ''),
+      remarks:              getCellByHeader(row, headerMap, 'Remarks'),
     };
 
     return Response.json({ sale });
@@ -408,6 +410,8 @@ export async function PUT(
       'Sale Closed By':                  saleClosedByVal,
       'Discount':                        String(discountVal),
       'Customer Email':                  updates.customerEmail   ?? getCellByHeader(row, headerMap, 'Customer Email'),
+      'Received By':                     updates.receivedBy      ?? getCellByHeader(row, headerMap, 'Received By') ?? (nextPaymentStatus === 'Paid' ? admin.name : ''),
+      'Remarks':                         updates.remarks         ?? getCellByHeader(row, headerMap, 'Remarks'),
     };
 
     await updateRow('sales', actualRowIndex, formatRowFromHeaderMap(sObj, rows[0]));

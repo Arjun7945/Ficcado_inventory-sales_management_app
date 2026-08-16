@@ -267,9 +267,6 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
         if (!modeOfRefund) {
           missingFields.push('Refund Mode is required before closing an all-items return.');
         }
-        if (modeOfRefund && modeOfRefund !== 'Cash' && (!transactionId || !transactionId.trim())) {
-          missingFields.push('Transaction ID is required when Refund Mode is non-Cash.');
-        }
       } else {
         // Standard specific-item checks
         if (!refundStatus || (refundStatus !== 'Approved' && refundStatus !== 'Completed')) {
@@ -281,9 +278,6 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
         }
         if (!modeOfRefund) {
           missingFields.push('Refund Mode is required.');
-        }
-        if (modeOfRefund && modeOfRefund !== 'Cash' && (!transactionId || !transactionId.trim())) {
-          missingFields.push('Transaction ID is required when Refund Mode is non-Cash (UPI, Card, Bank Transfer).');
         }
       }
 

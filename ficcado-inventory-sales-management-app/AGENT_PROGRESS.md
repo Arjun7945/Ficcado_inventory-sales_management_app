@@ -370,3 +370,69 @@ All Phase 68 through Phase 73 requirements from `Part8_of_implementation_ficcado
    - All legacy per-row editing handlers and dead routes purged.
    - Visually verified styling against `DESIGN.md` (colors, typography, badges, modals, and `<LoadingGecko />`).
 
+## 2026-08-16 - PART 9 COMPLETE ✅
+All Phase 84 through Phase 89 requirements from `Part9_of_implementation_ficcado.md` fully implemented and verified:
+
+1. **Transaction ID Optional Refactor (Phase 84 / A1)**:
+   - Removed `.refine(...)` validation from `SalesSchema` in `lib/validation.ts`. Transaction ID is now optional for all payment methods (while remaining conditionally hidden for Cash payments).
+   - Updated Return/Refund Close Ticket gate in `app/api/return-refund/[id]/route.ts` to remove `Transaction ID` from `missingFields`.
+   - Updated PDF invoice generator (`lib/invoiceGenerator.ts`) and UI views to render placeholder `—` when Transaction ID is missing or blank.
+
+2. **Vendor Contact Info Split (Phase 85 / A2)**:
+   - Updated `MODULE_REGISTRY.vendors` headers in `lib/google/moduleRegistry.ts` replacing `Contact Details` with `Contact Number(s)` and `Email ID`.
+   - Updated Vendor API endpoints (`/api/vendors` GET/POST and `/api/vendors/[id]` GET/PUT) to handle repeatable phone numbers array and single dedicated email ID, with header mapping fallback for legacy data.
+   - Overhauled Vendor Management UI (`app/(app)/dashboard/vendors/page.tsx`): added repeatable `Contact Number(s)` input list with `+ Add another number` control, dedicated `Email ID` field, and updated contact column & detail views.
+
+3. **Product-Level Profitability Breakdown Formalization (Phase 86 / B0)**:
+   - Formalized per-item profitability breakdown table in Profitability reporting, computing quantity sold, revenue, Cost Price-derived COGS, gross profit, and margin % for selected timeframes.
+
+4. **Payment Transactions Ledger API & View (Phase 87 / B1 & B2)**:
+   - Appended `Received By` and `Remarks` to `sales` headers and schema (`lib/google/moduleRegistry.ts`, `lib/validation.ts`, `app/api/sales/route.ts`, `app/api/sales/[id]/route.ts`).
+   - Created derived Payment Transactions API (`GET /api/reports/payment-transactions`): unifies Sales payments (`PAY-####`) and completed refund transactions (`REF-####`) into a single chronological ledger. Supports status filtering (`Paid`, `Refunded`, `Pending`), payment method filtering, date range filtering, search, and CSV export.
+   - Added view toggle in Profitability page (`app/(app)/dashboard/reports/profitability/page.tsx`) between **Product-Level Profitability Breakdown** and **Payment Transactions**.
+
+5. **Payment Detail Side Panel & Live Summary Widgets (Phase 88 / B2)**:
+   - Built detail modal/slide-over displaying Payment ID, Invoice link, Customer link, Order Date, Order Amount, Payment Information block, and Payment History mini-table.
+   - Built live **Payment Summary** (status counts & %) and **Payment Method Summary** (₹ amount & share %) widgets, dynamically calculated from filtered data.
+   - Confirmed the Recent Activity panel was excluded per spec instruction.
+
+6. **User Customizations (Profitability & Payment Ledger)**:
+   - Set **Payment Transactions** as the default view section upon opening Profitability & Financial Ledger.
+   - Wired invoice links in the Payment Transactions ledger table and detail panel directly to `/dashboard/sales/[id]` so clicking any invoice number opens the sale order manage/edit section where admins can update details and make changes.
+   - Positioned the Report Timeframe bar and complete Financial KPI summary cards section (NET PROFIT / LOSS, Gross Revenue, COGS, Gross Profit, Operational Expenses, Vendor Payments, Total Expenses, Unpaid Dues) prominently at the top of the Payment Transactions view.
+
+7. **Audit & Build Verification (Phase 89)**:
+   - `node node_modules/typescript/bin/tsc --noEmit` → **PASSED. Zero errors.**
+
+## 2026-08-16 - QUICK DASH REFACTOR COMPLETE ✅
+All Phase 90 through Phase 93 requirements from `Quick_dash_refactor.md` fully implemented and verified:
+
+1. **Collapsible Grouped Sidebar Structure (Phase 90)**:
+   - Reorganized flat 20-item nav list into 6 collapsible, logical groups + 1 top ungrouped item:
+     - **Dashboard** *(top, always visible)*
+     - **Sales & Orders**: Sales, Replacements, Returns & Refunds, Damaged Products
+     - **Inventory**: Items, Inventory, Warehouse, Reconciliation
+     - **Finance**: Expenses, Vendors, Profitability
+     - **Customers & Comms**: Customers, Announcements
+     - **Records**: Activity Log, Sales Log, Inventory History, Keep Notes
+     - **Admin**: Admin Control, My Profile
+   - Auto-expands the matching group dynamically on route changes (`usePathname()`).
+   - Persists open/closed group states across sessions via `localStorage` (`ficcado_sidebar_open_groups`).
+   - All ~20 destinations fully preserved and reachable.
+
+2. **Unified SVG Icon System & Notification Bell Restyle (Phase 91)**:
+   - Replaced mismatched unicode symbols with a clean, cohesive 20px SVG line-icon system (`strokeWidth={1.75}`) across all 20 destinations.
+   - Restyled notification bell icon to clean SVG with `DESIGN.md` primary brand blue (`#2B62C6`) unread badge.
+
+3. **Pinned Header & Footer Shell (Phase 92)**:
+   - Pinned top header: Ficcado brand mark + Online presence indicator popover.
+   - Pinned bottom footer: logged-in admin avatar, name, role, and logout button.
+   - Middle nav section scrolls independently on shorter viewports (`<= 768px` height).
+
+4. **Audit & Build Verification (Phase 93)**:
+   - Verified active-route auto-expand across all 20 destinations.
+   - Tested on compact viewports: default collapsed view eliminates sidebar scrolling.
+   - `node node_modules/typescript/bin/tsc --noEmit` → **PASSED. Zero errors.**
+
+
+

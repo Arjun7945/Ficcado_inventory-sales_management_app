@@ -33,13 +33,19 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
     const vendorType       = getCellByHeader(vRow, vMap, 'Vendor Type');
     const customVendorType = getCellByHeader(vRow, vMap, 'Custom Vendor Type');
+    const contactNumbersRaw = getCellByHeader(vRow, vMap, 'Contact Number(s)', getCellByHeader(vRow, vMap, 'Contact Details'));
+    const emailId           = getCellByHeader(vRow, vMap, 'Email ID');
+    const phoneNumbers      = contactNumbersRaw ? contactNumbersRaw.split(',').map((s) => s.trim()).filter(Boolean) : [];
+
     const vendor = {
       sno:             getCellByHeader(vRow, vMap, 'S.No'),
       vendorName:      getCellByHeader(vRow, vMap, 'Vendor Name'),
       vendorType,
       customVendorType,
       displayType:     vendorType === 'Other' && customVendorType ? customVendorType : vendorType,
-      contactDetails:  getCellByHeader(vRow, vMap, 'Contact Details'),
+      phoneNumbers,
+      emailId,
+      contactDetails:  contactNumbersRaw,
       purposeUse:      getCellByHeader(vRow, vMap, 'Purpose/Use'),
       totalAmountPaid: getCellByHeader(vRow, vMap, 'Total Amount Paid') || '0',
       createdAt:       getCellByHeader(vRow, vMap, 'Created At'),
@@ -83,7 +89,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 
     const existingRow = rows[rowIdx + 1];
     const body        = await request.json();
-    const { vendorName, vendorType, customVendorType, contactDetails, purposeUse } = body;
+    const { vendorName, vendorType, customVendorType, phoneNumbers, emailId, contactDetails, purposeUse } = body;
 
     if (vendorType && !PRESET_VENDOR_TYPES.includes(vendorType)) {
       return Response.json({ error: 'Invalid Vendor Type.' }, { status: 400 });
@@ -91,13 +97,21 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     const newType       = vendorType ?? getCellByHeader(existingRow, headerMap, 'Vendor Type');
     const newCustomType = newType === 'Other' ? (customVendorType?.trim() ?? getCellByHeader(existingRow, headerMap, 'Custom Vendor Type')) : '';
 
+    const existingContactsRaw = getCellByHeader(existingRow, headerMap, 'Contact Number(s)', getCellByHeader(existingRow, headerMap, 'Contact Details'));
+    const phoneNumbersArr = Array.isArray(phoneNumbers)
+      ? phoneNumbers.map((p: any) => String(p).trim()).filter(Boolean)
+      : (phoneNumbers !== undefined ? String(phoneNumbers).split(',').map((s) => s.trim()).filter(Boolean) : (contactDetails !== undefined ? [String(contactDetails).trim()] : (existingContactsRaw ? existingContactsRaw.split(',').map(s => s.trim()).filter(Boolean) : [])));
+    const newPhoneNumbersStr = phoneNumbersArr.join(', ');
+    const newEmailIdStr      = emailId !== undefined ? String(emailId).trim() : getCellByHeader(existingRow, headerMap, 'Email ID');
+
     const now        = new Date().toISOString();
     const updatedRow = [
       getCellByHeader(existingRow, headerMap, 'S.No'),
       vendorName?.trim() ?? getCellByHeader(existingRow, headerMap, 'Vendor Name'),
       newType,
       newCustomType,
-      contactDetails?.trim() ?? getCellByHeader(existingRow, headerMap, 'Contact Details'),
+      newPhoneNumbersStr,
+      newEmailIdStr,
       purposeUse?.trim() ?? getCellByHeader(existingRow, headerMap, 'Purpose/Use'),
       getCellByHeader(existingRow, headerMap, 'Total Amount Paid') || '0',
       getCellByHeader(existingRow, headerMap, 'Created At'),

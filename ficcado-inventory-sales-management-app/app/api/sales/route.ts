@@ -12,6 +12,7 @@ import { recordInventoryHistory } from '@/lib/inventoryHistory';
 import { recordSalesLog, formatPrice, formatStockLocation, groupItemLines, formatItemListWithSummary } from '@/lib/salesLogger';
 import { updateSearchIndex } from '@/lib/google/searchIndex';
 import { formatISTDateTime } from '@/lib/dateUtils';
+import { buildHeaderMap, getCellByHeader } from '@/lib/google/headerUtils';
 
 export const dynamic = 'force-dynamic';
 
@@ -186,35 +187,39 @@ export async function GET(request: Request) {
       if (needsUpdate) updateRow('sales', 1, headerRow).catch(() => {});
     }
 
+    const sHeaderMap = salesRows.length > 0 ? buildHeaderMap(salesRows[0]) : new Map<string, number>();
+
     const sales = salesRows.slice(1).map((row, i) => ({
       rowIndex:             i + 2,
-      sno:                  row[COL.sno]                  ?? '',
-      invoiceNumber:        row[COL.invoiceNumber]        ?? '',
-      saleStatus:           row[COL.saleStatus]           ?? '',
-      customerName:         row[COL.customerName]         ?? '',
-      customerPhone:        row[COL.customerPhone]        ?? '',
-      customerAddress:      row[COL.customerAddress]      ?? '',
-      totalItems:           row[COL.totalItems]           ?? '',
-      itemNames:            row[COL.itemNames]            ?? '',
-      sizes:                row[COL.sizes]                ?? '',
-      totalAmount:          row[COL.totalAmount]          ?? '',
-      paymentStatus:        row[COL.paymentStatus]        ?? '',
-      modeOfPayment:        row[COL.modeOfPayment]        ?? '',
-      transactionId:        row[COL.transactionId]        ?? '',
-      createdAt:            row[COL.createdAt]            ?? '',
-      createdBy:            row[COL.createdBy]            ?? '',
-      updatedAt:            row[COL.updatedAt]            ?? '',
-      updatedBy:            row[COL.updatedBy]            ?? '',
-      version:              row[COL.version]              ?? '1',
-      deliveryStatus:       row[COL.deliveryStatus]       ?? 'Packed & Ready for Shipment',
-      deliveryChargeToggle: row[COL.deliveryChargeToggle] === 'true',
-      deliveryChargeAmount: parseFloat(row[COL.deliveryChargeAmount] ?? '0') || 0,
-      fulfilmentStatus:     row[COL.fulfilmentStatus]     ?? 'Normal',
-      fulfilmentSource:     row[COL.fulfilmentSource]     ?? 'Take from Inventory',
-      saleClosedBy:         row[COL.saleClosedBy]         ?? '',
-      discount:             parseFloat(row[COL.discount]  ?? '0') || 0,
-      customerEmail:        row[COL.customerEmail]        ?? '',
-      itemPrices:           row[COL.itemPrices]           ?? '',
+      sno:                  getCellByHeader(row, sHeaderMap, 'S.No') || row[0] || '',
+      invoiceNumber:        getCellByHeader(row, sHeaderMap, 'Invoice Number') || row[1] || '',
+      saleStatus:           getCellByHeader(row, sHeaderMap, 'Sale Status') || row[2] || '',
+      customerName:         getCellByHeader(row, sHeaderMap, 'Customer Name') || row[3] || '',
+      customerPhone:        getCellByHeader(row, sHeaderMap, 'Customer Phone Number') || row[4] || '',
+      customerAddress:      getCellByHeader(row, sHeaderMap, 'Customer Address') || row[5] || '',
+      totalItems:           getCellByHeader(row, sHeaderMap, 'Total Number of Items Purchased') || row[6] || '',
+      itemNames:            getCellByHeader(row, sHeaderMap, 'Item(s) Name(s)') || row[7] || '',
+      sizes:                getCellByHeader(row, sHeaderMap, 'Size(s) Chosen') || row[8] || '',
+      totalAmount:          getCellByHeader(row, sHeaderMap, 'Total Amount') || row[10] || '',
+      paymentStatus:        getCellByHeader(row, sHeaderMap, 'Payment Status') || row[11] || '',
+      modeOfPayment:        getCellByHeader(row, sHeaderMap, 'Mode of Payment') || row[12] || '',
+      transactionId:        getCellByHeader(row, sHeaderMap, 'Transaction ID') || row[13] || '',
+      createdAt:            getCellByHeader(row, sHeaderMap, 'Created At') || row[14] || '',
+      createdBy:            getCellByHeader(row, sHeaderMap, 'Created By (Admin)') || row[15] || '',
+      updatedAt:            getCellByHeader(row, sHeaderMap, 'Updated At') || row[16] || '',
+      updatedBy:            getCellByHeader(row, sHeaderMap, 'Updated By') || row[17] || '',
+      version:              getCellByHeader(row, sHeaderMap, 'Version', '1'),
+      deliveryStatus:       getCellByHeader(row, sHeaderMap, 'Delivery Status', 'Packed & Ready for Shipment'),
+      deliveryChargeToggle: getCellByHeader(row, sHeaderMap, 'Delivery Charge Toggle') === 'true',
+      deliveryChargeAmount: parseFloat(getCellByHeader(row, sHeaderMap, 'Delivery Charge Amount', '0')) || 0,
+      fulfilmentStatus:     getCellByHeader(row, sHeaderMap, 'Fulfilment Request Status', 'Normal'),
+      fulfilmentSource:     getCellByHeader(row, sHeaderMap, 'Fulfilment Source', 'Take from Inventory'),
+      saleClosedBy:         getCellByHeader(row, sHeaderMap, 'Sale Closed By'),
+      discount:             parseFloat(getCellByHeader(row, sHeaderMap, 'Discount', '0')) || 0,
+      customerEmail:        getCellByHeader(row, sHeaderMap, 'Customer Email'),
+      itemPrices:           getCellByHeader(row, sHeaderMap, 'Item Prices'),
+      receivedBy:           getCellByHeader(row, sHeaderMap, 'Received By') || (getCellByHeader(row, sHeaderMap, 'Payment Status') === 'Paid' ? (getCellByHeader(row, sHeaderMap, 'Created By (Admin)') || row[15]) : ''),
+      remarks:              getCellByHeader(row, sHeaderMap, 'Remarks'),
     })).filter((s) => s.invoiceNumber);
 
     // Live inventory stock items
@@ -283,7 +288,7 @@ export async function POST(request: Request) {
       transactionId, saleStatus, deliveryStatus,
       deliveryChargeToggle, deliveryChargeAmount,
       fulfilmentStatus, fulfilmentSource,
-      customerEmail, discount,
+      customerEmail, discount, receivedBy, remarks,
     } = data!;
 
     const [salesRows, invRows, wRows] = await Promise.all([
@@ -534,6 +539,8 @@ export async function POST(request: Request) {
       saleClosedByValue,
       String(discount ?? 0),
       customerEmail ?? '',
+      paymentStatus === 'Paid' ? (receivedBy?.trim() || admin.name) : '',
+      remarks?.trim() ?? '',
     ]]);
 
     // 5. Upsert customer_info record (same transaction, silently skips if module not configured)

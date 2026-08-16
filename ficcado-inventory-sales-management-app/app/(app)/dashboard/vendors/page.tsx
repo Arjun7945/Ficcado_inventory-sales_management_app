@@ -25,6 +25,8 @@ interface VendorEntry {
   vendorType:      string;
   customVendorType:string;
   displayType:     string;
+  phoneNumbers?:   string[];
+  emailId?:        string;
   contactDetails:  string;
   purposeUse:      string;
   totalAmountPaid: string;
@@ -53,7 +55,8 @@ export default function VendorsPage() {
   const [vendorName, setVendorName]           = useState('');
   const [vendorType, setVendorType]           = useState(VENDOR_TYPES[0]);
   const [customVendorType, setCustomVendorType] = useState('');
-  const [contactDetails, setContactDetails]   = useState('');
+  const [phoneNumbers, setPhoneNumbers]       = useState<string[]>(['']);
+  const [emailId, setEmailId]                 = useState('');
   const [purposeUse, setPurposeUse]           = useState('');
   const [submitting, setSubmitting]           = useState(false);
   const [formError, setFormError]             = useState<string | null>(null);
@@ -103,7 +106,8 @@ export default function VendorsPage() {
     setVendorName('');
     setVendorType(VENDOR_TYPES[0]);
     setCustomVendorType('');
-    setContactDetails('');
+    setPhoneNumbers(['']);
+    setEmailId('');
     setPurposeUse('');
     setFormError(null);
     setShowModal(true);
@@ -114,10 +118,27 @@ export default function VendorsPage() {
     setVendorName(v.vendorName);
     setVendorType(v.vendorType);
     setCustomVendorType(v.customVendorType || '');
-    setContactDetails(v.contactDetails);
+    setPhoneNumbers(v.phoneNumbers && v.phoneNumbers.length > 0 ? v.phoneNumbers : (v.contactDetails ? [v.contactDetails] : ['']));
+    setEmailId(v.emailId || '');
     setPurposeUse(v.purposeUse);
     setFormError(null);
     setShowModal(true);
+  }
+
+  function handleAddPhoneNumber() {
+    setPhoneNumbers((prev) => [...prev, '']);
+  }
+
+  function handleRemovePhoneNumber(index: number) {
+    setPhoneNumbers((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function handlePhoneNumberChange(index: number, val: string) {
+    setPhoneNumbers((prev) => {
+      const next = [...prev];
+      next[index] = val;
+      return next;
+    });
   }
 
   async function handleSubmitVendor(e: React.FormEvent) {
@@ -127,6 +148,7 @@ export default function VendorsPage() {
     if (vendorType === 'Other' && !customVendorType.trim()) {
       setFormError('"What type of vendor is this?" is required.'); return;
     }
+    const cleanPhones = phoneNumbers.map((p) => p.trim()).filter(Boolean);
     setSubmitting(true);
     try {
       const url    = editingVendor ? `/api/vendors/${editingVendor.sno}` : '/api/vendors';
@@ -134,7 +156,14 @@ export default function VendorsPage() {
       const res    = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vendorName, vendorType, customVendorType, contactDetails, purposeUse }),
+        body: JSON.stringify({
+          vendorName,
+          vendorType,
+          customVendorType,
+          phoneNumbers: cleanPhones,
+          emailId: emailId.trim(),
+          purposeUse,
+        }),
       });
       const data = await res.json();
       if (!res.ok) { setFormError(data.error || 'Failed.'); return; }
@@ -228,7 +257,10 @@ export default function VendorsPage() {
                     <td style={{ color: 'var(--color-ink-muted)', fontSize: 12 }}>{v.sno}</td>
                     <td style={{ fontWeight: 700 }}>{v.vendorName}</td>
                     <td><span className="badge badge-neutral">{v.displayType || v.vendorType}</span></td>
-                    <td style={{ fontSize: 12.5, color: 'var(--color-ink-muted)' }}>{v.contactDetails || '—'}</td>
+                    <td style={{ fontSize: 12.5, color: 'var(--color-ink-muted)' }}>
+                      <div>{v.phoneNumbers && v.phoneNumbers.length > 0 ? v.phoneNumbers.join(', ') : (v.contactDetails || '—')}</div>
+                      {v.emailId && <div style={{ fontSize: 11.5, color: 'var(--color-brand-primary)' }}>{v.emailId}</div>}
+                    </td>
                     <td style={{ fontSize: 12.5, maxWidth: 200, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.purposeUse || '—'}</td>
                     <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--color-brand-primary)', fontVariantNumeric: 'tabular-nums' }}>
                       ₹{parseFloat(v.totalAmountPaid || '0').toLocaleString('en-IN')}
@@ -280,9 +312,51 @@ export default function VendorsPage() {
                     </div>
                   </div>
                 )}
+                
+                {/* Contact Number(s) Repeatable Field */}
                 <div className="form-group">
-                  <label className="form-label">Contact Details <span style={{ fontWeight: 400, color: 'var(--color-ink-muted)' }}>(optional)</span></label>
-                  <input type="text" className="form-input" value={contactDetails} onChange={(e) => setContactDetails(e.target.value)} placeholder="Phone, email, WhatsApp…" />
+                  <label className="form-label">Contact Number(s) <span style={{ fontWeight: 400, color: 'var(--color-ink-muted)' }}>(optional)</span></label>
+                  {phoneNumbers.map((phone, idx) => (
+                    <div key={idx} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                      <input
+                        type="tel"
+                        className="form-input"
+                        value={phone}
+                        onChange={(e) => handlePhoneNumberChange(idx, e.target.value)}
+                        placeholder={idx === 0 ? 'Primary contact phone number' : 'Alternate contact number'}
+                      />
+                      {phoneNumbers.length > 1 && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          style={{ color: 'var(--color-error)' }}
+                          onClick={() => handleRemovePhoneNumber(idx)}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    style={{ fontSize: 12, padding: '4px 8px' }}
+                    onClick={handleAddPhoneNumber}
+                  >
+                    + Add another number
+                  </button>
+                </div>
+
+                {/* Email ID Field */}
+                <div className="form-group">
+                  <label className="form-label">Email ID <span style={{ fontWeight: 400, color: 'var(--color-ink-muted)' }}>(optional)</span></label>
+                  <input
+                    type="email"
+                    className="form-input"
+                    value={emailId}
+                    onChange={(e) => setEmailId(e.target.value)}
+                    placeholder="e.g. vendor@company.com"
+                  />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Purpose / Use <span style={{ fontWeight: 400, color: 'var(--color-ink-muted)' }}>(optional)</span></label>

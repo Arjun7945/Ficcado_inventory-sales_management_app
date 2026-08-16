@@ -35,7 +35,7 @@ export const MODULE_REGISTRY: Record<string, ModuleDefinition> = {
     key: 'sales',
     displayName: 'Sales Management Sheet',
     tabName: 'Sales Management',
-    headers: ['S.No', 'Invoice Number', 'Sale Status', 'Customer Name', 'Customer Phone Number', 'Customer Address', 'Total Number of Items Purchased', 'Item(s) Name(s)', 'Size(s) Chosen', 'Item Prices', 'Total Amount', 'Payment Status', 'Mode of Payment', 'Transaction ID', 'Created At', 'Created By (Admin)', 'Updated At', 'Updated By', 'Version', 'Delivery Status', 'Delivery Charge Toggle', 'Delivery Charge Amount', 'Fulfilment Request Status', 'Fulfilment Source', 'Sale Closed By', 'Discount', 'Customer Email'],
+    headers: ['S.No', 'Invoice Number', 'Sale Status', 'Customer Name', 'Customer Phone Number', 'Customer Address', 'Total Number of Items Purchased', 'Item(s) Name(s)', 'Size(s) Chosen', 'Item Prices', 'Total Amount', 'Payment Status', 'Mode of Payment', 'Transaction ID', 'Created At', 'Created By (Admin)', 'Updated At', 'Updated By', 'Version', 'Delivery Status', 'Delivery Charge Toggle', 'Delivery Charge Amount', 'Fulfilment Request Status', 'Fulfilment Source', 'Sale Closed By', 'Discount', 'Customer Email', 'Received By', 'Remarks'],
   },
   replacement: {
     key: 'replacement',
@@ -113,7 +113,7 @@ export const MODULE_REGISTRY: Record<string, ModuleDefinition> = {
     tabName: 'Vendor Management',
     headers: [
       'S.No', 'Vendor Name', 'Vendor Type', 'Custom Vendor Type',
-      'Contact Details', 'Purpose/Use', 'Total Amount Paid',
+      'Contact Number(s)', 'Email ID', 'Purpose/Use', 'Total Amount Paid',
       'Created At', 'Created By', 'Updated At', 'Updated By',
     ],
   },

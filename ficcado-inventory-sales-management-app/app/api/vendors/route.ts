@@ -29,6 +29,11 @@ export async function GET() {
       const vendorType       = getCellByHeader(row, headerMap, 'Vendor Type');
       const customVendorType = getCellByHeader(row, headerMap, 'Custom Vendor Type');
       const displayType      = vendorType === 'Other' && customVendorType ? customVendorType : vendorType;
+      
+      const contactNumbersRaw = getCellByHeader(row, headerMap, 'Contact Number(s)', getCellByHeader(row, headerMap, 'Contact Details'));
+      const emailId           = getCellByHeader(row, headerMap, 'Email ID');
+      const phoneNumbers      = contactNumbersRaw ? contactNumbersRaw.split(',').map((s) => s.trim()).filter(Boolean) : [];
+
       return {
         rowIndex:        i + 2,
         sno:             getCellByHeader(row, headerMap, 'S.No') || String(i + 1),
@@ -36,7 +41,9 @@ export async function GET() {
         vendorType,
         customVendorType,
         displayType,
-        contactDetails:  getCellByHeader(row, headerMap, 'Contact Details'),
+        phoneNumbers,
+        emailId,
+        contactDetails:  contactNumbersRaw,
         purposeUse:      getCellByHeader(row, headerMap, 'Purpose/Use'),
         totalAmountPaid: getCellByHeader(row, headerMap, 'Total Amount Paid') || '0',
         createdAt:       getCellByHeader(row, headerMap, 'Created At'),
@@ -59,7 +66,7 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const { vendorName, vendorType, customVendorType, contactDetails, purposeUse } = body;
+    const { vendorName, vendorType, customVendorType, phoneNumbers, emailId, contactDetails, purposeUse } = body;
 
     if (!vendorName?.trim()) {
       return Response.json({ error: 'Vendor Name is required.' }, { status: 400 });
@@ -71,6 +78,12 @@ export async function POST(request: Request) {
       return Response.json({ error: '"What type of vendor is this?" is required when Vendor Type is Other.' }, { status: 400 });
     }
 
+    const phoneNumbersArr = Array.isArray(phoneNumbers)
+      ? phoneNumbers.map((p: any) => String(p).trim()).filter(Boolean)
+      : (phoneNumbers ? String(phoneNumbers).split(',').map((s) => s.trim()).filter(Boolean) : (contactDetails ? [String(contactDetails).trim()] : []));
+    const phoneNumbersStr = phoneNumbersArr.join(', ');
+    const emailIdStr      = (emailId || '').trim();
+
     const rows = await readAllRows('vendors');
     const sno  = String(Math.max(rows.length - 1, 0) + 1);
     const now  = new Date().toISOString();
@@ -80,7 +93,8 @@ export async function POST(request: Request) {
       vendorName.trim(),
       vendorType,
       vendorType === 'Other' ? (customVendorType?.trim() ?? '') : '',
-      contactDetails?.trim() ?? '',
+      phoneNumbersStr,
+      emailIdStr,
       purposeUse?.trim() ?? '',
       '0',  // Total Amount Paid starts at 0
       now,

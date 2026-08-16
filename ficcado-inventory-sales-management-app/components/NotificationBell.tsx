@@ -119,23 +119,27 @@ export default function NotificationBell() {
         title="Activity notifications"
         aria-label="View activity notifications"
       >
-        🔔
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
+          <path d="M13.73 21a2 2 0 01-3.46 0" />
+        </svg>
         {unreadCount > 0 && (
           <span style={{
             position: 'absolute',
             top: 2, right: 2,
-            background: 'var(--color-error, #e53935)',
+            background: 'var(--color-brand-primary)',
             color: '#fff',
             fontSize: 9,
-            fontWeight: 700,
+            fontWeight: 800,
             borderRadius: '50%',
-            minWidth: 16,
-            height: 16,
+            minWidth: 15,
+            height: 15,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             padding: '0 3px',
             lineHeight: 1,
+            boxShadow: '0 0 0 2px var(--color-surface)',
           }}>
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
