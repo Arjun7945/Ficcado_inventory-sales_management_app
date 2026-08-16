@@ -3,6 +3,15 @@
  * GET /api/dashboard/stats
  * Returns today's sales count, revenue, total items, low stock count,
  * pending replacements, and pending refunds.
+ *
+ * Optional query params:
+ *   ?month=YYYY-MM  → compute stats for that specific month only
+ *   (no param)      → today's + overall stats (legacy behaviour)
+ *
+ * Also returns availableMonths[] — sorted list of months (YYYY-MM) that
+ * have at least one sales record, so the dashboard month picker can limit
+ * selection to data-rich months only.
+ *
  * Refactored with getAuthSession and position-independent header mapping.
  */
 
@@ -20,18 +29,43 @@ async function safeRead(moduleKey: string): Promise<string[][]> {
   }
 }
 
-export async function GET() {
+/** Parse a date string loosely and return "YYYY-MM" or '' */
+function toYearMonth(dateStr: string): string {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '';
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  } catch {
+    return '';
+  }
+}
+
+/** Check whether a date string falls within a specific YYYY-MM month */
+function isInMonth(dateStr: string, targetMonth: string): boolean {
+  return toYearMonth(dateStr) === targetMonth;
+}
+
+export async function GET(request: Request) {
   const auth = await getAuthSession();
   if ('errorResponse' in auth) return auth.errorResponse;
 
-  // ── Phase 66: Return cached stats if still fresh (60s TTL) ─────────────────
-  const cached = getDashboardStatsCache();
-  if (cached) return Response.json({ stats: cached.stats });
+  const { searchParams } = new URL(request.url);
+  const monthParam = (searchParams.get('month') ?? '').trim(); // e.g. "2026-08"
+
+  // ── Phase 66: Return cached stats only for non-month-scoped requests ──────
+  if (!monthParam) {
+    const cached = getDashboardStatsCache();
+    if (cached) {
+      // availableMonths not cached — always re-derive (cheap, from cached data)
+      return Response.json({ stats: cached.stats });
+    }
+  }
 
   try {
     const now = new Date();
-    const todayISO = now.toISOString().slice(0, 10); // YYYY-MM-DD
-    const todayLocal = now.toLocaleDateString('en-CA'); // YYYY-MM-DD local
+    const todayISO   = now.toISOString().slice(0, 10);
+    const todayLocal = now.toLocaleDateString('en-CA');
 
     const [salesRows, itemsRows, inventoryRows, replacementRows, refundRows] = await Promise.all([
       safeRead('sales'),
@@ -41,7 +75,76 @@ export async function GET() {
       safeRead('return_refund'),
     ]);
 
-    // Today & Overall sales calculation
+    // ── Derive available months from sales data ──────────────────────────────
+    const monthSet = new Set<string>();
+    if (salesRows.length > 1) {
+      const sHeaderMap = buildHeaderMap(salesRows[0]);
+      for (const row of salesRows.slice(1)) {
+        const createdAt = getCellByHeader(row, sHeaderMap, 'Created At');
+        const ym = toYearMonth(createdAt);
+        if (ym) monthSet.add(ym);
+      }
+    }
+    const availableMonths = Array.from(monthSet).sort().reverse(); // newest first
+
+    // ── Monthly mode ─────────────────────────────────────────────────────────
+    if (monthParam) {
+      let monthlySales     = 0;
+      let monthlyRevenue   = 0;
+      let monthlyPendingReplacements = 0;
+      let monthlyPendingRefunds      = 0;
+
+      if (salesRows.length > 0) {
+        const sMap = buildHeaderMap(salesRows[0]);
+        for (const row of salesRows.slice(1)) {
+          const createdAt    = getCellByHeader(row, sMap, 'Created At');
+          if (!isInMonth(createdAt, monthParam)) continue;
+          const amountStr    = getCellByHeader(row, sMap, 'Total Amount');
+          const amount       = parseFloat(amountStr.replace(/[^0-9.]/g, '')) || 0;
+          const payStatus    = (getCellByHeader(row, sMap, 'Payment Status') || '').trim().toLowerCase();
+          monthlySales++;
+          if (payStatus === 'paid') monthlyRevenue += amount;
+        }
+      }
+
+      if (replacementRows.length > 0) {
+        const rMap = buildHeaderMap(replacementRows[0]);
+        for (const row of replacementRows.slice(1)) {
+          const createdAt = getCellByHeader(row, rMap, 'Created At');
+          if (!isInMonth(createdAt, monthParam)) continue;
+          const status = getCellByHeader(row, rMap, 'Invoice Status');
+          if (status.toLowerCase().includes('pending') || status.toLowerCase().includes('approved') || status.toLowerCase().includes('dispatched')) {
+            monthlyPendingReplacements++;
+          }
+        }
+      }
+
+      if (refundRows.length > 0) {
+        const rfMap = buildHeaderMap(refundRows[0]);
+        for (const row of refundRows.slice(1)) {
+          const createdAt = getCellByHeader(row, rfMap, 'Created At');
+          if (!isInMonth(createdAt, monthParam)) continue;
+          const status = getCellByHeader(row, rfMap, 'Refund Status');
+          if (status.toLowerCase().includes('pending') || status === '' || status === 'Approved') {
+            monthlyPendingRefunds++;
+          }
+        }
+      }
+
+      return Response.json({
+        mode: 'monthly',
+        month: monthParam,
+        availableMonths,
+        stats: {
+          monthlySales,
+          monthlyRevenue,
+          monthlyPendingReplacements,
+          monthlyPendingRefunds,
+        },
+      });
+    }
+
+    // ── Today & Overall mode (legacy) ────────────────────────────────────────
     let todaySales = 0;
     let todayRevenue = 0;
     let todayUnpaidRevenue = 0;
@@ -56,12 +159,12 @@ export async function GET() {
     if (salesRows.length > 0) {
       const sMap = buildHeaderMap(salesRows[0]);
       for (const row of salesRows.slice(1)) {
-        const createdAt = getCellByHeader(row, sMap, 'Created At');
-        const amountStr = getCellByHeader(row, sMap, 'Total Amount');
-        const amount = parseFloat(amountStr.replace(/[^0-9.]/g, '')) || 0;
+        const createdAt     = getCellByHeader(row, sMap, 'Created At');
+        const amountStr     = getCellByHeader(row, sMap, 'Total Amount');
+        const amount        = parseFloat(amountStr.replace(/[^0-9.]/g, '')) || 0;
         const totalItemsCount = parseInt(getCellByHeader(row, sMap, 'Total Number of Items Purchased', '1'), 10) || 1;
         const paymentStatus = (getCellByHeader(row, sMap, 'Payment Status') || '').trim();
-        const isPaid = paymentStatus.toLowerCase() === 'paid';
+        const isPaid        = paymentStatus.toLowerCase() === 'paid';
 
         overallSales++;
         if (isPaid) {
@@ -78,7 +181,7 @@ export async function GET() {
           } else {
             const dateObj = new Date(createdAt);
             if (!isNaN(dateObj.getTime())) {
-              const isoDate = dateObj.toISOString().slice(0, 10);
+              const isoDate   = dateObj.toISOString().slice(0, 10);
               const localDate = dateObj.toLocaleDateString('en-CA');
               if (isoDate === todayISO || localDate === todayLocal) {
                 isToday = true;
@@ -109,18 +212,18 @@ export async function GET() {
       const invMap = buildHeaderMap(inventoryRows[0]);
       for (const row of inventoryRows.slice(1)) {
         const qtyStr = getCellByHeader(row, invMap, 'Total Quantity Available', '0');
-        const qty = parseInt(qtyStr, 10);
+        const qty    = parseInt(qtyStr, 10);
         if (!isNaN(qty) && qty === 0) lowStockCount++;
       }
     }
 
     // Pending replacements
-    let pendingReplacementToday = 0;
+    let pendingReplacementToday  = 0;
     let totalPendingReplacements = 0;
     if (replacementRows.length > 0) {
       const repMap = buildHeaderMap(replacementRows[0]);
       for (const row of replacementRows.slice(1)) {
-        const status = getCellByHeader(row, repMap, 'Invoice Status');
+        const status    = getCellByHeader(row, repMap, 'Invoice Status');
         const isPending = status.toLowerCase().includes('pending') || status.toLowerCase().includes('approved') || status.toLowerCase().includes('dispatched');
         if (isPending) {
           totalPendingReplacements++;
@@ -138,7 +241,7 @@ export async function GET() {
     if (refundRows.length > 0) {
       const refMap = buildHeaderMap(refundRows[0]);
       for (const row of refundRows.slice(1)) {
-        const status = getCellByHeader(row, refMap, 'Refund Status');
+        const status    = getCellByHeader(row, refMap, 'Refund Status');
         const isPending = status.toLowerCase().includes('pending') || status === '' || status === 'Approved';
         if (isPending) {
           totalPendingRefunds++;
@@ -158,8 +261,8 @@ export async function GET() {
       todayItemsSold,
       totalItems,
       lowStockCount,
-      pendingReplacement: pendingReplacementToday,
-      pendingRefunds: pendingRefundsToday,
+      pendingReplacement:      pendingReplacementToday,
+      pendingRefunds:          pendingRefundsToday,
       overallSales,
       overallRevenue,
       overallUnpaidRevenue,
@@ -167,9 +270,10 @@ export async function GET() {
       totalPendingReplacements,
       totalPendingRefunds,
     };
+
     // ── Phase 66: Populate the 60s server-side cache ─────────────────────────
     setDashboardStatsCache(stats);
-    return Response.json({ stats });
+    return Response.json({ stats, availableMonths });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return Response.json(

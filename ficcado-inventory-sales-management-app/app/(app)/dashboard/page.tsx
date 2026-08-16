@@ -3,11 +3,14 @@
 /**
  * app/(app)/dashboard/page.tsx
  *
- * Dashboard home — shows Today's Sale vs Overall Sale summary,
+ * Dashboard home — shows Today's Sale / Overall Sale / Monthly Sale summary,
  * recent Sales Log feed, and quick-access cards for each module.
+ *
+ * Phase 74 (B1): Added Monthly view mode with a month picker limited to
+ * months that actually have sales data.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { formatISTDateTime, formatISTTextTimestamps } from '@/lib/dateUtils';
 
@@ -26,7 +29,14 @@ interface DashboardStats {
   overallUnpaidRevenue:      number;
   overallUnpaidSales:        number;
   totalPendingReplacements:  number;
-  totalPendingRefunds:      number;
+  totalPendingRefunds:       number;
+}
+
+interface MonthlyStats {
+  monthlySales:                number;
+  monthlyRevenue:              number;
+  monthlyPendingReplacements:  number;
+  monthlyPendingRefunds:       number;
 }
 
 interface SalesLogItem {
@@ -49,12 +59,26 @@ const MODULE_CARDS = [
   { label: 'Sales Log',         href: '/dashboard/sales-log',     icon: '📋', description: 'Detailed narrative transaction audit log' },
 ];
 
+/** Format "2026-08" → "August 2026" */
+function formatMonthLabel(ym: string): string {
+  if (!ym || ym.length < 7) return ym;
+  const [year, month] = ym.split('-');
+  const d = new Date(parseInt(year), parseInt(month) - 1, 1);
+  return d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+}
+
 export default function DashboardPage() {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [salesLogs, setSalesLogs] = useState<SalesLogItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<'today' | 'overall'>('today');
+  const [stats, setStats]           = useState<DashboardStats | null>(null);
+  const [monthlyStats, setMonthlyStats] = useState<MonthlyStats | null>(null);
+  const [salesLogs, setSalesLogs]   = useState<SalesLogItem[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [monthlyLoading, setMonthlyLoading] = useState(false);
+  const [viewMode, setViewMode]     = useState<'today' | 'overall' | 'monthly'>('today');
   const [unreadLogCount, setUnreadLogCount] = useState(0);
+
+  // Monthly picker state
+  const [availableMonths, setAvailableMonths] = useState<string[]>([]);
+  const [selectedMonth, setSelectedMonth]     = useState<string>('');
 
   useEffect(() => {
     Promise.all([
@@ -63,9 +87,14 @@ export default function DashboardPage() {
     ])
       .then(([statsData, logsData]) => {
         if (statsData.stats) setStats(statsData.stats);
+        if (statsData.availableMonths) {
+          setAvailableMonths(statsData.availableMonths);
+          if (statsData.availableMonths.length > 0) {
+            setSelectedMonth(statsData.availableMonths[0]); // default = most recent month
+          }
+        }
         if (logsData.logs) {
           setSalesLogs(logsData.logs);
-          // Calculate unread logs since last visit
           const lastReadTime = localStorage.getItem('ficcado_last_read_sales_log_time');
           if (lastReadTime) {
             const count = logsData.logs.filter((l: SalesLogItem) => new Date(l.createdAt).getTime() > new Date(lastReadTime).getTime()).length;
@@ -78,6 +107,27 @@ export default function DashboardPage() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  const loadMonthlyStats = useCallback(async (month: string) => {
+    if (!month) return;
+    setMonthlyLoading(true);
+    try {
+      const res  = await fetch(`/api/dashboard/stats?month=${encodeURIComponent(month)}`);
+      const data = await res.json();
+      if (data.stats) setMonthlyStats(data.stats);
+    } catch {
+      setMonthlyStats(null);
+    } finally {
+      setMonthlyLoading(false);
+    }
+  }, []);
+
+  // Load monthly stats when month changes or Monthly mode is selected
+  useEffect(() => {
+    if (viewMode === 'monthly' && selectedMonth) {
+      loadMonthlyStats(selectedMonth);
+    }
+  }, [viewMode, selectedMonth, loadMonthlyStats]);
 
   const today = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
@@ -147,8 +197,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* A6: View Mode Dropdown Toggle */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+      {/* ── A6: View Mode Dropdown Toggle (Phase 74: + Monthly) ─────────────── */}
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <label htmlFor="sales-view-toggle" style={{ fontWeight: 600, fontSize: 13, color: 'var(--color-ink-muted)' }}>
             Filter Sales View:
@@ -157,16 +207,43 @@ export default function DashboardPage() {
             id="sales-view-toggle"
             className="form-select"
             value={viewMode}
-            onChange={(e) => setViewMode(e.target.value as 'today' | 'overall')}
-            style={{ width: 170, fontWeight: 600 }}
+            onChange={(e) => setViewMode(e.target.value as 'today' | 'overall' | 'monthly')}
+            style={{ width: 180, fontWeight: 600 }}
           >
             <option value="today">Today&apos;s Sale</option>
             <option value="overall">Overall Sale</option>
+            <option value="monthly">Monthly</option>
           </select>
         </div>
+
+        {/* Month picker — visible only in Monthly mode */}
+        {viewMode === 'monthly' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <label htmlFor="month-picker" style={{ fontWeight: 600, fontSize: 13, color: 'var(--color-ink-muted)' }}>
+              Select Month:
+            </label>
+            {availableMonths.length === 0 ? (
+              <span style={{ fontSize: 13, color: 'var(--color-ink-muted)', fontStyle: 'italic' }}>
+                No sales data available yet
+              </span>
+            ) : (
+              <select
+                id="month-picker"
+                className="form-select"
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                style={{ width: 200, fontWeight: 600 }}
+              >
+                {availableMonths.map((ym) => (
+                  <option key={ym} value={ym}>{formatMonthLabel(ym)}</option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Stats row */}
+      {/* ── Stats rows ───────────────────────────────────────────────────────── */}
       {viewMode === 'today' ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginBottom: 28 }}>
           <StatCard label="Revenue Today (Paid)" value={`₹${(stats?.todayRevenue ?? 0).toLocaleString('en-IN')}`} accent="primary" loading={loading} />
@@ -177,13 +254,49 @@ export default function DashboardPage() {
           <StatCard label="Pending Replacements" value={String(stats?.pendingReplacement ?? 0)} accent={stats?.pendingReplacement ? 'warning' : 'neutral'} loading={loading} />
           <StatCard label="Pending Return/Refund" value={String(stats?.pendingRefunds ?? 0)} accent={stats?.pendingRefunds ? 'error' : 'neutral'} loading={loading} />
         </div>
-      ) : (
+      ) : viewMode === 'overall' ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginBottom: 28 }}>
           <StatCard label="Total Revenue (Paid)" value={`₹${(stats?.overallRevenue ?? 0).toLocaleString('en-IN')}`} accent="primary" loading={loading} />
           <StatCard label="Total Unpaid Sale"   value={`₹${(stats?.overallUnpaidRevenue ?? 0).toLocaleString('en-IN')}`} subtext={`${stats?.overallUnpaidSales ?? 0} unpaid orders`} accent={stats?.overallUnpaidSales ? 'warning' : 'neutral'} loading={loading} />
           <StatCard label="Total Sales Made"          value={String(stats?.overallSales ?? 0)} accent="neutral" loading={loading} />
           <StatCard label="Total Pending Replacements" value={String(stats?.totalPendingReplacements ?? 0)} accent={stats?.totalPendingReplacements ? 'warning' : 'neutral'} loading={loading} />
           <StatCard label="Total Pending Return/Refund" value={String(stats?.totalPendingRefunds ?? 0)} accent={stats?.totalPendingRefunds ? 'error' : 'neutral'} loading={loading} />
+        </div>
+      ) : (
+        /* Monthly view */
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginBottom: 28 }}>
+          {availableMonths.length === 0 ? (
+            <div style={{ gridColumn: '1/-1', padding: '24px 0', color: 'var(--color-ink-muted)', fontSize: 14, textAlign: 'center' }}>
+              No sales data recorded yet — nothing to show for Monthly view.
+            </div>
+          ) : (
+            <>
+              <StatCard
+                label={`Revenue — ${formatMonthLabel(selectedMonth)}`}
+                value={`₹${(monthlyStats?.monthlyRevenue ?? 0).toLocaleString('en-IN')}`}
+                accent="primary"
+                loading={monthlyLoading}
+              />
+              <StatCard
+                label="Total Sales Made"
+                value={String(monthlyStats?.monthlySales ?? 0)}
+                accent="neutral"
+                loading={monthlyLoading}
+              />
+              <StatCard
+                label="Pending Replacements"
+                value={String(monthlyStats?.monthlyPendingReplacements ?? 0)}
+                accent={(monthlyStats?.monthlyPendingReplacements ?? 0) > 0 ? 'warning' : 'neutral'}
+                loading={monthlyLoading}
+              />
+              <StatCard
+                label="Pending Return/Refund"
+                value={String(monthlyStats?.monthlyPendingRefunds ?? 0)}
+                accent={(monthlyStats?.monthlyPendingRefunds ?? 0) > 0 ? 'error' : 'neutral'}
+                loading={monthlyLoading}
+              />
+            </>
+          )}
         </div>
       )}
 

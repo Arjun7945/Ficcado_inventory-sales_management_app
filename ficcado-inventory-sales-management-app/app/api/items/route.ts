@@ -2,6 +2,8 @@
  * app/api/items/route.ts
  * GET  /api/items — list all items
  * POST /api/items — create a new item
+ *
+ * Position-independent header mapping. Includes Cost Price (B7).
  */
 
 import { getAuthSession } from '@/lib/auth';
@@ -28,6 +30,7 @@ export async function GET() {
       itemName:  getCellByHeader(row, headerMap, 'Item Name'),
       itemType:  getCellByHeader(row, headerMap, 'Item Type'),
       price:     getCellByHeader(row, headerMap, 'Price of Item'),
+      costPrice: getCellByHeader(row, headerMap, 'Cost Price', '0'),
       sizes:     getCellByHeader(row, headerMap, 'Available Sizes'),
       status:    getCellByHeader(row, headerMap, 'Current Status', 'In Stock'),
       createdAt: getCellByHeader(row, headerMap, 'Created At'),
@@ -53,7 +56,7 @@ export async function POST(request: Request) {
     const validation = validate(ItemSchema, body);
     if (!validation.valid) return Response.json({ error: validation.errorMessage, errors: validation.errors }, { status: 400 });
 
-    const { itemName, itemType, priceOfItem, availableSizes, currentStatus } = validation.data!;
+    const { itemName, itemType, priceOfItem, costPrice, availableSizes, currentStatus } = validation.data!;
     const rows = await readAllRows('items');
 
     if (rows.length > 0) {
@@ -71,6 +74,7 @@ export async function POST(request: Request) {
       'Item Name':        itemName,
       'Item Type':        itemType,
       'Price of Item':    String(priceOfItem),
+      'Cost Price':       String(costPrice ?? 0),
       'Available Sizes':  sizesStr,
       'Created By':       admin.name,
       'Created At':       now,
@@ -79,12 +83,12 @@ export async function POST(request: Request) {
       'Current Status':   currentStatus ?? 'In Stock',
     };
 
-    const headerRow = rows[0] || ['S.No', 'Item Name', 'Item Type', 'Price of Item', 'Available Sizes', 'Created By', 'Created At', 'Updated By', 'Updated At', 'Current Status'];
+    const headerRow = rows[0] || ['S.No', 'Item Name', 'Item Type', 'Price of Item', 'Cost Price', 'Available Sizes', 'Created By', 'Created At', 'Updated By', 'Updated At', 'Current Status'];
     await appendRows('items', [formatRowFromHeaderMap(itemObj, headerRow)]);
 
     await logActivity({ adminName: admin.name, action: 'created', module: 'Items Management', moduleKey: 'items', recordId: itemName });
 
-    const itemLogMsg = `Admin ${admin.name} created a new item ${itemName}, type ${itemType}, price ${formatPrice(priceOfItem)}, available sizes ${sizesStr}. Status set to ${currentStatus ?? 'In Stock'}. Created at ${now}.`;
+    const itemLogMsg = `Admin ${admin.name} created a new item ${itemName}, type ${itemType}, selling price ${formatPrice(priceOfItem)}, cost price ${formatPrice(costPrice ?? 0)}, available sizes ${sizesStr}. Status set to ${currentStatus ?? 'In Stock'}. Created at ${now}.`;
 
     await recordSalesLog({
       module: 'Items',

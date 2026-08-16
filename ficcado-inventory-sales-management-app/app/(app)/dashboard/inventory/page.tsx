@@ -35,6 +35,10 @@ export default function InventoryPage() {
   const [error, setError] = useState<{ message: string } | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // B2: Search & Filter state
+  const [searchQuery, setSearchQuery]     = useState('');
+  const [statusFilter, setStatusFilter]   = useState<'all' | 'in-stock' | 'low-stock' | 'out-of-stock'>('all');
+
   // Update / Add Stock modal
   const [showModal, setShowModal] = useState(false);
   const [editingSno, setEditingSno] = useState<string | null>(null);
@@ -137,12 +141,26 @@ export default function InventoryPage() {
     }
   }
 
+  // B2: Apply search + filter client-side
+  const filteredInventory = inventory.filter((inv) => {
+    const q = inv.qty;
+    // Status filter
+    if (statusFilter === 'out-of-stock' && q !== 0) return false;
+    if (statusFilter === 'low-stock'    && !(q > 0 && q < 5)) return false;
+    if (statusFilter === 'in-stock'     && q < 5) return false;
+    // Name search
+    if (searchQuery && !inv.itemName.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    return true;
+  });
+
   return (
     <div>
       <div className="page-header">
         <div>
           <h1 className="page-title">Inventory Stock</h1>
-          <div className="page-subtitle">{inventory.length} size stock records</div>
+          <div className="page-subtitle">
+            {filteredInventory.length}{filteredInventory.length !== inventory.length ? ` of ${inventory.length}` : ''} stock records
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button className="btn btn-ghost btn-sm" onClick={loadInventory} disabled={loading}>
@@ -152,6 +170,50 @@ export default function InventoryPage() {
             + Update / Add Stock
           </button>
         </div>
+      </div>
+
+      {/* B2: Search & Filter controls */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'center' }}>
+        <div style={{ flex: '1 1 220px', position: 'relative' }}>
+          <span style={{
+            position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
+            color: 'var(--color-ink-muted)', pointerEvents: 'none', fontSize: 15,
+          }}>🔍</span>
+          <input
+            id="inventory-search"
+            type="text"
+            className="form-input"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by item name…"
+            style={{ paddingLeft: 34 }}
+          />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label htmlFor="inventory-status-filter" style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-ink-muted)', whiteSpace: 'nowrap' }}>
+            Stock Status:
+          </label>
+          <select
+            id="inventory-status-filter"
+            className="form-select"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+            style={{ width: 170, fontWeight: 600 }}
+          >
+            <option value="all">All</option>
+            <option value="in-stock">In Stock (5+)</option>
+            <option value="low-stock">Low Stock (1–4)</option>
+            <option value="out-of-stock">Out of Stock</option>
+          </select>
+        </div>
+        {(searchQuery || statusFilter !== 'all') && (
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => { setSearchQuery(''); setStatusFilter('all'); }}
+          >
+            ✕ Clear Filters
+          </button>
+        )}
       </div>
 
       {error   && <ErrorMessage message={error.message} variant="error"   onDismiss={() => setError(null)} />}
@@ -170,6 +232,14 @@ export default function InventoryPage() {
               Click "+ Update / Add Stock" to log inventory quantities.
             </div>
           </div>
+        ) : filteredInventory.length === 0 ? (
+          <div className="empty-state">
+            <div style={{ fontSize: 28 }}>🔍</div>
+            <div className="empty-state-title">No results found</div>
+            <div style={{ fontSize: 13, color: 'var(--color-ink-muted)' }}>
+              Try adjusting your search or filter.
+            </div>
+          </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table className="data-table">
@@ -184,7 +254,7 @@ export default function InventoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {inventory.map((inv, idx) => {
+                {filteredInventory.map((inv, idx) => {
                   const q = inv.qty;
                   const isLow = q === 0;
                   return (

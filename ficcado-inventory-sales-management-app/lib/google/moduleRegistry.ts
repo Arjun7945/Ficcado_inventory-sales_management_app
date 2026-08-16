@@ -17,7 +17,7 @@ export const MODULE_REGISTRY: Record<string, ModuleDefinition> = {
     key: 'items',
     displayName: 'Items Management Sheet',
     tabName: 'Items Management',
-    headers: ['S.No', 'Item Name', 'Item Type', 'Price of Item', 'Available Sizes', 'Created By', 'Created At', 'Updated By', 'Updated At', 'Current Status'],
+    headers: ['S.No', 'Item Name', 'Item Type', 'Price of Item', 'Cost Price', 'Available Sizes', 'Created By', 'Created At', 'Updated By', 'Updated At', 'Current Status'],
   },
   inventory: {
     key: 'inventory',
@@ -96,6 +96,44 @@ export const MODULE_REGISTRY: Record<string, ModuleDefinition> = {
     displayName: 'Sales Search Index Sheet',
     tabName: 'Sales Search Index',
     headers: ['searchKey', 'rowIndex', 'moduleKey'],
+  },
+  expenses: {
+    key: 'expenses',
+    displayName: 'Expense Management Sheet',
+    tabName: 'Expense Management',
+    headers: [
+      'S.No', 'Admin Name', 'Expense Category', 'Custom Category',
+      'Description', 'Amount', 'Date of Expense',
+      'Created At', 'Created By', 'Updated At', 'Updated By',
+    ],
+  },
+  vendors: {
+    key: 'vendors',
+    displayName: 'Vendor Management Sheet',
+    tabName: 'Vendor Management',
+    headers: [
+      'S.No', 'Vendor Name', 'Vendor Type', 'Custom Vendor Type',
+      'Contact Details', 'Purpose/Use', 'Total Amount Paid',
+      'Created At', 'Created By', 'Updated At', 'Updated By',
+    ],
+  },
+  vendor_payments: {
+    key: 'vendor_payments',
+    displayName: 'Vendor Payment Log Sheet',
+    tabName: 'Vendor Payment Log',
+    headers: [
+      'S.No', 'Vendor Name', 'Amount', 'Date', 'Note',
+      'Created At', 'Created By',
+    ],
+  },
+  announcements: {
+    key: 'announcements',
+    displayName: 'Announcements Log Sheet',
+    tabName: 'Announcements Log',
+    headers: [
+      'S.No', 'Subject', 'Target Audience', 'Recipients Count', 'Sent Count',
+      'Failed Count', 'Created At', 'Created By',
+    ],
   },
 };
 

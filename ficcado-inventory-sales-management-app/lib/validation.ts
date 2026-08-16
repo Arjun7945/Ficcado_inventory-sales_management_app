@@ -25,6 +25,7 @@ export const ItemSchema = z.object({
   itemName:       requiredString('Item name'),
   itemType:       requiredString('Item type'),
   priceOfItem:    positiveNumber('Price'),
+  costPrice:      z.coerce.number().min(0, 'Cost price must be 0 or greater').default(0),
   availableSizes: z.array(z.enum(['XS', 'S', 'M', 'L', 'XL'] as const)).min(1, 'Select at least one size variant'),
   currentStatus:  z.string().default('In Stock'),
 });
@@ -221,6 +222,38 @@ export const NoteSchema = z.object({
   noteContent: z.string().min(1, 'Note content is required').max(5000, 'Note must be 5000 characters or fewer'),
 });
 export type NoteInput = z.infer<typeof NoteSchema>;
+
+/** Expense Management */
+export const EXPENSE_CATEGORIES = [
+  'Fuel Expense',
+  'Printing Exp',
+  'Travel Exp',
+  'Food Exp',
+  'Tip Exp',
+  'Purchase on Goods Exp',
+  'Advertising Exp',
+  'Other',
+] as const;
+
+export const ExpenseSchema = z.object({
+  category:       z.enum(EXPENSE_CATEGORIES, 'Select a valid expense category'),
+  customCategory: z.string().optional(),
+  description:    requiredString('Expense description'),
+  amount:         positiveNumber('Expense amount').refine((val) => val > 0, 'Amount must be greater than 0'),
+  dateOfExpense:  requiredString('Date of expense'),
+}).refine(
+  (data) => {
+    if (data.category === 'Other' && !data.customCategory?.trim()) {
+      return false;
+    }
+    return true;
+  },
+  {
+    message: '"What type of expense is this?" is required when Category is Other',
+    path: ['customCategory'],
+  }
+);
+export type ExpenseInput = z.infer<typeof ExpenseSchema>;
 
 // ─── Validation helper ────────────────────────────────────────────────────────
 

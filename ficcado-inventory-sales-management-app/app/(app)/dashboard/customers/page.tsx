@@ -5,6 +5,10 @@
  *
  * Customer Information Management Page.
  * Strictly adheres to Ficcado Design System & Brand Guide (docs/DESIGN.md).
+ *
+ * Phase 76 (B3): Address field replaced by a repeatable labeled list.
+ * Each customer can have multiple saved addresses (Home, Work, Other — free label).
+ * Phone and email remain single/fixed as per spec.
  */
 
 import { useState, useEffect } from 'react';
@@ -12,11 +16,17 @@ import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
 import { formatISTDateTime } from '@/lib/dateUtils';
 
+interface AddressEntry {
+  label:   string;
+  address: string;
+}
+
 interface CustomerRecord {
   sno:            string;
   name:           string;
   phone:          string;
-  address:        string;
+  addresses:      AddressEntry[];
+  address:        string;   // legacy compat — first address text
   email:          string;
   totalOrders:    string;
   invoiceNumbers: string;
@@ -35,7 +45,7 @@ export default function CustomersPage() {
   const [loadingOrders, setLoadingOrders]       = useState(false);
   const [editName, setEditName]                 = useState('');
   const [editEmail, setEditEmail]               = useState('');
-  const [editAddress, setEditAddress]           = useState('');
+  const [editAddresses, setEditAddresses]       = useState<AddressEntry[]>([]);
   const [savingProfile, setSavingProfile]       = useState(false);
   const [saveError, setSaveError]               = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess]           = useState<string | null>(null);
@@ -44,7 +54,12 @@ export default function CustomersPage() {
     setSelectedCustomer(c);
     setEditName(c.name);
     setEditEmail(c.email);
-    setEditAddress(c.address);
+    // Ensure addresses is always an array
+    setEditAddresses(
+      Array.isArray(c.addresses) && c.addresses.length > 0
+        ? [...c.addresses]
+        : c.address ? [{ label: 'Default', address: c.address }] : []
+    );
     setSaveError(null);
     setSaveSuccess(null);
     setLoadingOrders(true);
@@ -67,9 +82,30 @@ export default function CustomersPage() {
     }
   }
 
+  // ── Address list helpers ────────────────────────────────────────────────────
+  function addAddress() {
+    setEditAddresses((prev) => [...prev, { label: '', address: '' }]);
+  }
+
+  function updateAddressField(idx: number, field: 'label' | 'address', value: string) {
+    setEditAddresses((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], [field]: value };
+      return next;
+    });
+  }
+
+  function removeAddress(idx: number) {
+    setEditAddresses((prev) => prev.filter((_, i) => i !== idx));
+  }
+
   async function handleSaveCustomerProfile(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedCustomer) return;
+
+    // Validate: remove empty entries before saving
+    const cleanedAddresses = editAddresses.filter((a) => a.address.trim());
+
     setSaveError(null);
     setSaveSuccess(null);
     setSavingProfile(true);
@@ -79,10 +115,10 @@ export default function CustomersPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          phone: selectedCustomer.phone,
-          name: editName,
-          email: editEmail,
-          address: editAddress,
+          phone:     selectedCustomer.phone,
+          name:      editName,
+          email:     editEmail,
+          addresses: cleanedAddresses,
         }),
       });
       const data = await res.json();
@@ -91,7 +127,13 @@ export default function CustomersPage() {
         return;
       }
       setSaveSuccess('Customer profile updated successfully.');
-      setSelectedCustomer((prev) => prev ? { ...prev, name: editName, email: editEmail, address: editAddress } : null);
+      setSelectedCustomer((prev) => prev ? {
+        ...prev,
+        name: editName,
+        email: editEmail,
+        addresses: cleanedAddresses,
+        address: cleanedAddresses[0]?.address ?? '',
+      } : null);
       fetchCustomers();
     } catch {
       setSaveError("Couldn't save customer details.");
@@ -125,18 +167,19 @@ export default function CustomersPage() {
   const filteredCustomers = customers.filter((c) => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
+    const allAddressText = (c.addresses || []).map((a) => a.address).join(' ').toLowerCase();
     return (
       c.name.toLowerCase().includes(q) ||
       c.phone.toLowerCase().includes(q) ||
       c.email.toLowerCase().includes(q) ||
-      c.address.toLowerCase().includes(q) ||
+      allAddressText.includes(q) ||
       c.invoiceNumbers.toLowerCase().includes(q)
     );
   });
 
-  const totalCustomers = customers.length;
+  const totalCustomers     = customers.length;
   const customersWithEmail = customers.filter((c) => c.email.trim().length > 0).length;
-  const totalOrdersPlaced = customers.reduce((sum, c) => sum + (parseInt(c.totalOrders, 10) || 0), 0);
+  const totalOrdersPlaced  = customers.reduce((sum, c) => sum + (parseInt(c.totalOrders, 10) || 0), 0);
 
   return (
     <div style={{ maxWidth: 1200, margin: '0 auto' }}>
@@ -216,63 +259,82 @@ export default function CustomersPage() {
                   <th>Customer Name</th>
                   <th>Phone Number</th>
                   <th>Email Address</th>
-                  <th>Delivery Address</th>
+                  <th>Saved Addresses</th>
                   <th style={{ textAlign: 'center' }}>Total Orders</th>
                   <th>Related Invoices</th>
                   <th style={{ textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredCustomers.map((c, idx) => (
-                  <tr key={c.phone || idx}>
-                    <td style={{ textAlign: 'center', color: 'var(--color-ink-muted)', fontSize: 13, fontWeight: 600 }}>
-                      {c.sno || idx + 1}
-                    </td>
-                    <td style={{ fontWeight: 600, color: 'var(--color-ink)' }}>
-                      {c.name || '—'}
-                    </td>
-                    <td>
-                      <code style={{
-                        fontSize: 12.5,
-                        fontFamily: 'monospace',
-                        fontWeight: 600,
-                        color: 'var(--color-brand-primary)',
-                        background: 'rgba(43,98,198,0.06)',
-                        padding: '2px 6px',
-                        borderRadius: 4,
-                      }}>
-                        {c.phone || '—'}
-                      </code>
-                    </td>
-                    <td>
-                      {c.email ? (
-                        <span style={{ fontSize: 13, color: 'var(--color-ink)' }}>{c.email}</span>
-                      ) : (
-                        <span className="badge badge-warning">No Email</span>
-                      )}
-                    </td>
-                    <td style={{ fontSize: 13, color: 'var(--color-ink-muted)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {c.address || '—'}
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <span className="badge badge-success" style={{ fontWeight: 700, padding: '3px 10px' }}>
-                        {c.totalOrders || '1'} order(s)
-                      </span>
-                    </td>
-                    <td style={{ fontSize: 12.5, color: 'var(--color-ink-muted)', maxWidth: 180, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {c.invoiceNumbers ? (
-                        <span style={{ fontFamily: 'monospace', color: 'var(--color-brand-primary)', fontWeight: 600 }}>
-                          {c.invoiceNumbers}
+                {filteredCustomers.map((c, idx) => {
+                  const addrList = Array.isArray(c.addresses) && c.addresses.length > 0
+                    ? c.addresses
+                    : c.address ? [{ label: 'Default', address: c.address }] : [];
+                  return (
+                    <tr key={c.phone || idx}>
+                      <td style={{ textAlign: 'center', color: 'var(--color-ink-muted)', fontSize: 13, fontWeight: 600 }}>
+                        {c.sno || idx + 1}
+                      </td>
+                      <td style={{ fontWeight: 600, color: 'var(--color-ink)' }}>
+                        {c.name || '—'}
+                      </td>
+                      <td>
+                        <code style={{
+                          fontSize: 12.5,
+                          fontFamily: 'monospace',
+                          fontWeight: 600,
+                          color: 'var(--color-brand-primary)',
+                          background: 'rgba(43,98,198,0.06)',
+                          padding: '2px 6px',
+                          borderRadius: 4,
+                        }}>
+                          {c.phone || '—'}
+                        </code>
+                      </td>
+                      <td>
+                        {c.email ? (
+                          <span style={{ fontSize: 13, color: 'var(--color-ink)' }}>{c.email}</span>
+                        ) : (
+                          <span className="badge badge-warning">No Email</span>
+                        )}
+                      </td>
+                      <td style={{ fontSize: 12.5 }}>
+                        {addrList.length === 0 ? (
+                          <span style={{ color: 'var(--color-ink-muted)' }}>—</span>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            {addrList.slice(0, 2).map((a, ai) => (
+                              <div key={ai} style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                                <span className="badge badge-neutral" style={{ fontSize: 10, padding: '1px 5px', flexShrink: 0 }}>{a.label || 'Address'}</span>
+                                <span style={{ color: 'var(--color-ink-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{a.address}</span>
+                              </div>
+                            ))}
+                            {addrList.length > 2 && (
+                              <span style={{ fontSize: 11, color: 'var(--color-brand-primary)' }}>+{addrList.length - 2} more</span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <span className="badge badge-success" style={{ fontWeight: 700, padding: '3px 10px' }}>
+                          {c.totalOrders || '1'} order(s)
                         </span>
-                      ) : '—'}
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <button className="btn btn-secondary btn-sm" onClick={() => openCustomerDetailModal(c)}>
-                        View & Edit Profile
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td style={{ fontSize: 12.5, color: 'var(--color-ink-muted)', maxWidth: 180, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {c.invoiceNumbers ? (
+                          <span style={{ fontFamily: 'monospace', color: 'var(--color-brand-primary)', fontWeight: 600 }}>
+                            {c.invoiceNumbers}
+                          </span>
+                        ) : '—'}
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <button className="btn btn-secondary btn-sm" onClick={() => openCustomerDetailModal(c)}>
+                          View & Edit Profile
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -316,10 +378,93 @@ export default function CustomersPage() {
                     <input type="text" className="form-input" value={selectedCustomer.phone} disabled style={{ opacity: 0.7, cursor: 'not-allowed' }} />
                   </div>
                 </div>
+
+                {/* ── Addresses list editor (B3) ─────────────────────────────── */}
                 <div className="form-group" style={{ marginBottom: 14 }}>
-                  <label className="form-label">Delivery Address</label>
-                  <textarea className="form-textarea" rows={2} value={editAddress} onChange={(e) => setEditAddress(e.target.value)} placeholder="Full delivery address" />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <label className="form-label" style={{ margin: 0 }}>Saved Addresses</label>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={addAddress}
+                      style={{ fontSize: 12 }}
+                    >
+                      + Add Address
+                    </button>
+                  </div>
+
+                  {editAddresses.length === 0 ? (
+                    <div style={{
+                      padding: '12px 14px',
+                      border: '1px dashed var(--color-border)',
+                      borderRadius: 6,
+                      fontSize: 13,
+                      color: 'var(--color-ink-muted)',
+                      textAlign: 'center',
+                    }}>
+                      No addresses saved yet — click &quot;+ Add Address&quot; to add one.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {editAddresses.map((addr, ai) => (
+                        <div
+                          key={ai}
+                          style={{
+                            display: 'flex',
+                            gap: 8,
+                            alignItems: 'flex-start',
+                            background: 'var(--color-surface)',
+                            border: '1px solid var(--color-border)',
+                            borderRadius: 6,
+                            padding: '10px 12px',
+                          }}
+                        >
+                          <div style={{ flex: '0 0 120px' }}>
+                            <label className="form-label" style={{ fontSize: 11, marginBottom: 4 }}>Label</label>
+                            <input
+                              type="text"
+                              className="form-input"
+                              value={addr.label}
+                              onChange={(e) => updateAddressField(ai, 'label', e.target.value)}
+                              placeholder="e.g. Home, Work…"
+                              style={{ fontSize: 12.5 }}
+                            />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <label className="form-label" style={{ fontSize: 11, marginBottom: 4 }}>Address</label>
+                            <textarea
+                              className="form-textarea"
+                              rows={2}
+                              value={addr.address}
+                              onChange={(e) => updateAddressField(ai, 'address', e.target.value)}
+                              placeholder="Full delivery address"
+                              style={{ fontSize: 12.5 }}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeAddress(ai)}
+                            style={{
+                              marginTop: 22,
+                              background: 'none',
+                              border: 'none',
+                              color: 'var(--color-error)',
+                              cursor: 'pointer',
+                              fontSize: 18,
+                              lineHeight: 1,
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                            }}
+                            title="Remove this address"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
+
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                   <button type="submit" className="btn btn-primary btn-sm" disabled={savingProfile}>
                     {savingProfile ? <LoadingGecko size="inline" label="Saving…" /> : 'Save Customer Changes'}
@@ -363,8 +508,8 @@ export default function CustomersPage() {
                       </thead>
                       <tbody>
                         {customerOrders.map((ord, idx) => {
-                          const isPaid = ord.paymentStatus === 'Paid';
-                          const totalVal = parseFloat(ord.totalAmount || '0') || 0;
+                          const isPaid     = ord.paymentStatus === 'Paid';
+                          const totalVal   = parseFloat(ord.totalAmount || '0') || 0;
                           const discountVal = parseFloat(ord.discount || '0') || 0;
 
                           return (

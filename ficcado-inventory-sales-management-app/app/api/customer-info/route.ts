@@ -3,6 +3,12 @@
  *
  * GET /api/customer-info?phone={phone} -> Look up single customer by phone number.
  * GET /api/customer-info               -> List all customer information records.
+ * PUT /api/customer-info               -> Update a customer record (name, email, addresses).
+ *
+ * Phase 76 (B3): Address column now stores a JSON array of labeled address entries:
+ *   [{ label: string, address: string }]
+ * Old plain-string values are decoded as [{ label: "Default", address: "<value>" }]
+ * on first read, making this fully backward-compatible with existing data.
  */
 
 import { requireAuth } from '@/lib/auth';
@@ -10,11 +16,16 @@ import { readAllRows } from '@/lib/google/moduleSheet';
 
 export const dynamic = 'force-dynamic';
 
+export interface AddressEntry {
+  label:   string;
+  address: string;
+}
+
 const COL_CI = {
   sno:            0,
   customerName:   1,
   phoneNumber:    2,
-  address:        3,
+  address:        3,  // now stores JSON: AddressEntry[]
   emailId:        4,
   totalOrders:    5,
   invoiceNumbers: 6,
@@ -23,6 +34,26 @@ const COL_CI = {
   updatedAt:      9,
   updatedBy:      10,
 };
+
+/** Parse the address column — supports both legacy string and new JSON format */
+function parseAddresses(raw: string): AddressEntry[] {
+  if (!raw || !raw.trim()) return [];
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed as AddressEntry[];
+    } catch { /* fall through to legacy */ }
+  }
+  // Legacy plain-string — wrap as single Default address
+  return [{ label: 'Default', address: trimmed }];
+}
+
+/** Serialize address list to store in the sheet column */
+function serializeAddresses(addresses: AddressEntry[]): string {
+  if (!addresses || addresses.length === 0) return '';
+  return JSON.stringify(addresses);
+}
 
 export async function GET(request: Request) {
   try {
@@ -48,12 +79,16 @@ export async function GET(request: Request) {
         return Response.json({ found: false });
       }
 
+      const addresses = parseAddresses(match[COL_CI.address] ?? '');
+
       return Response.json({
         found: true,
         customer: {
           name:           match[COL_CI.customerName]   ?? '',
           phone:          match[COL_CI.phoneNumber]    ?? '',
-          address:        match[COL_CI.address]        ?? '',
+          addresses,
+          // Legacy single field for backward compat — first address text
+          address:        addresses[0]?.address ?? '',
           email:          match[COL_CI.emailId]        ?? '',
           totalOrders:    match[COL_CI.totalOrders]    ?? '0',
           invoiceNumbers: match[COL_CI.invoiceNumbers] ?? '',
@@ -62,18 +97,22 @@ export async function GET(request: Request) {
     }
 
     // ── List All Customers ──────────────────────────────────────────────────
-    const customers = rows.slice(1).map((r, idx) => ({
-      sno:            r[COL_CI.sno]            || String(idx + 1),
-      name:           r[COL_CI.customerName]   || '',
-      phone:          r[COL_CI.phoneNumber]    || '',
-      address:        r[COL_CI.address]        || '',
-      email:          r[COL_CI.emailId]        || '',
-      totalOrders:    r[COL_CI.totalOrders]    || '0',
-      invoiceNumbers: r[COL_CI.invoiceNumbers] || '',
-      createdAt:      r[COL_CI.createdAt]      || '',
-      createdBy:      r[COL_CI.createdBy]      || '',
-      updatedAt:      r[COL_CI.updatedAt]      || '',
-    })).filter((c) => c.phone || c.name);
+    const customers = rows.slice(1).map((r, idx) => {
+      const addresses = parseAddresses(r[COL_CI.address] ?? '');
+      return {
+        sno:            r[COL_CI.sno]            || String(idx + 1),
+        name:           r[COL_CI.customerName]   || '',
+        phone:          r[COL_CI.phoneNumber]    || '',
+        addresses,
+        address:        addresses[0]?.address ?? '',  // legacy compat
+        email:          r[COL_CI.emailId]        || '',
+        totalOrders:    r[COL_CI.totalOrders]    || '0',
+        invoiceNumbers: r[COL_CI.invoiceNumbers] || '',
+        createdAt:      r[COL_CI.createdAt]      || '',
+        createdBy:      r[COL_CI.createdBy]      || '',
+        updatedAt:      r[COL_CI.updatedAt]      || '',
+      };
+    }).filter((c) => c.phone || c.name);
 
     return Response.json({
       success: true,
@@ -96,26 +135,41 @@ export async function PUT(request: Request) {
 
   try {
     const body = await request.json();
-    const { phone, name, address, email } = body;
+    const { phone, name, addresses, email } = body as {
+      phone:     string;
+      name?:     string;
+      addresses?: AddressEntry[];
+      email?:    string;
+    };
+
     if (!phone) {
       return Response.json({ error: 'Phone number is required to update customer record.' }, { status: 400 });
     }
 
     const rows = await readAllRows('customer_info');
-    const idx = rows.slice(1).findIndex((r) => (r[COL_CI.phoneNumber] ?? '').trim() === phone.trim());
+    const idx  = rows.slice(1).findIndex((r) => (r[COL_CI.phoneNumber] ?? '').trim() === phone.trim());
     if (idx === -1) {
       return Response.json({ error: `Customer record for phone '${phone}' not found.` }, { status: 404 });
     }
 
-    const rowIndex = idx + 2;
+    const rowIndex    = idx + 2;
     const existingRow = rows[idx + 1];
-    const now = new Date().toISOString();
+    const now         = new Date().toISOString();
+
+    // Determine the address value to store
+    let newAddressValue: string;
+    if (addresses !== undefined) {
+      newAddressValue = serializeAddresses(addresses);
+    } else {
+      // Preserve existing value
+      newAddressValue = existingRow[COL_CI.address] ?? '';
+    }
 
     const updatedRow = [
       existingRow[COL_CI.sno] || String(idx + 1),
       name !== undefined ? name : existingRow[COL_CI.customerName],
       existingRow[COL_CI.phoneNumber],
-      address !== undefined ? address : existingRow[COL_CI.address],
+      newAddressValue,
       email !== undefined ? email : existingRow[COL_CI.emailId],
       existingRow[COL_CI.totalOrders] || '0',
       existingRow[COL_CI.invoiceNumbers] || '',

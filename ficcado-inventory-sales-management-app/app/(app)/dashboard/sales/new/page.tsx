@@ -36,10 +36,11 @@ interface SaleItemRow {
 }
 
 interface FoundCustomer {
-  name: string;
-  phone: string;
-  address: string;
-  email: string;
+  name:      string;
+  phone:     string;
+  addresses: Array<{ label: string; address: string }>;
+  address:   string;  // legacy compat
+  email:     string;
 }
 
 export default function NewSalePage() {
@@ -61,9 +62,13 @@ export default function NewSalePage() {
   const [customerAddress, setCustomerAddress] = useState('');
 
   // Phone Lookup Suggestions
-  const [foundCustomer, setFoundCustomer] = useState<FoundCustomer | null>(null);
-  const [searchingPhone, setSearchingPhone] = useState(false);
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [foundCustomer, setFoundCustomer]       = useState<FoundCustomer | null>(null);
+  const [searchingPhone, setSearchingPhone]     = useState(false);
+  const searchTimeoutRef                        = useRef<NodeJS.Timeout | null>(null);
+  // B3: Address picker from saved list
+  const [showAddressPicker, setShowAddressPicker]             = useState(false);
+  const [newAddressInput, setNewAddressInput]                 = useState('');
+  const [savedAddressesSnapshot, setSavedAddressesSnapshot]  = useState<Array<{label:string;address:string}>>([]);
 
   // Selected Sale Items
   const [saleItems, setSaleItems] = useState<SaleItemRow[]>([]);
@@ -151,9 +156,40 @@ export default function NewSalePage() {
 
   function applyCustomerAutofill(c: FoundCustomer) {
     if (c.name) setCustomerName(c.name);
-    if (c.address) setCustomerAddress(c.address);
     if (c.email) setCustomerEmail(c.email);
+    // B3: If customer has saved addresses, show picker instead of autofilling directly
+    const addresses = Array.isArray(c.addresses) && c.addresses.length > 0
+      ? c.addresses
+      : c.address ? [{ label: 'Default', address: c.address }] : [];
+    setSavedAddressesSnapshot(addresses);
+    if (addresses.length > 0) {
+      setCustomerAddress(addresses[0].address); // pre-select first
+      setShowAddressPicker(true);
+    } else {
+      setCustomerAddress('');
+      setShowAddressPicker(false);
+    }
     setFoundCustomer(null);
+  }
+
+  /** Save a newly entered address back to the customer record */
+  async function saveNewAddressToCustomer(phone: string, newAddr: string) {
+    if (!phone || !newAddr.trim()) return;
+    try {
+      const existingRes  = await fetch(`/api/customer-info?phone=${encodeURIComponent(phone)}`);
+      const existingData = await existingRes.json();
+      if (!existingData.found) return;
+      const existing: FoundCustomer = existingData.customer;
+      const existingAddresses = Array.isArray(existing.addresses) && existing.addresses.length > 0
+        ? existing.addresses
+        : existing.address ? [{ label: 'Default', address: existing.address }] : [];
+      const updated = [...existingAddresses, { label: 'Other', address: newAddr.trim() }];
+      await fetch('/api/customer-info', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, addresses: updated }),
+      });
+    } catch { /* best-effort */ }
   }
 
   // ── Live Calculation: Subtotal - Discount + Delivery = Grand Total ──────
@@ -367,7 +403,10 @@ export default function NewSalePage() {
                   Found Existing Customer: {foundCustomer.name}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--color-ink-muted)', marginTop: 2 }}>
-                  {foundCustomer.email ? `Email: ${foundCustomer.email} • ` : ''}Address: {foundCustomer.address || 'N/A'}
+                  {foundCustomer.email ? `Email: ${foundCustomer.email} • ` : ''}
+                  {Array.isArray(foundCustomer.addresses) && foundCustomer.addresses.length > 0
+                    ? `${foundCustomer.addresses.length} saved address(es)`
+                    : `Address: ${foundCustomer.address || 'N/A'}`}
                 </div>
               </div>
               <button
@@ -408,11 +447,79 @@ export default function NewSalePage() {
 
           <div className="form-group" style={{ margin: 0 }}>
             <label className="form-label">Delivery Address *</label>
+
+            {/* B3: Address picker — shown when customer has saved addresses */}
+
+            {showAddressPicker && (
+              <div style={{
+                background: 'var(--color-surface)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 8,
+                padding: '10px 14px',
+                marginBottom: 8,
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-ink-muted)', marginBottom: 8 }}>
+                  Select a saved address or enter a new one:
+                </div>
+                {/* Radio list of saved addresses */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                  {savedAddressesSnapshot.map((a, ai) => (
+                    <label key={ai} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+                      <input
+                        type="radio"
+                        name="saved-address-picker"
+                        checked={customerAddress === a.address}
+                        onChange={() => setCustomerAddress(a.address)}
+                        style={{ marginTop: 3 }}
+                      />
+                      <span>
+                        <span className="badge badge-neutral" style={{ fontSize: 10, padding: '1px 5px', marginRight: 4 }}>{a.label || 'Address'}</span>
+                        {a.address}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                {/* New address input */}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-ink-muted)', display: 'block', marginBottom: 4 }}>Or add a new address:</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={newAddressInput}
+                      onChange={(e) => setNewAddressInput(e.target.value)}
+                      placeholder="Enter new delivery address…"
+                      style={{ fontSize: 13 }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={!newAddressInput.trim()}
+                    onClick={() => {
+                      const addr = newAddressInput.trim();
+                      if (addr) {
+                        setCustomerAddress(addr);
+                        saveNewAddressToCustomer(customerPhone, addr);
+                        setSavedAddressesSnapshot((prev) => [...prev, { label: 'Other', address: addr }]);
+                        setNewAddressInput('');
+                      }
+                    }}
+                  >
+                    Use & Save This Address
+                  </button>
+                </div>
+              </div>
+            )}
+
             <textarea
               className="form-textarea"
               rows={2}
               value={customerAddress}
-              onChange={(e) => setCustomerAddress(e.target.value)}
+              onChange={(e) => {
+                setCustomerAddress(e.target.value);
+                setShowAddressPicker(false); // dismiss picker when typing manually
+              }}
               placeholder="Street, City, Pincode..."
               required
             />
