@@ -14,7 +14,6 @@ import { buildHeaderMap, getCellByHeader, formatRowFromHeaderMap } from '@/lib/g
 import { calculateSaleTotalAmount } from '@/lib/salesPricing';
 import { logActivity } from '@/lib/activityLogger';
 import { recordSalesLog, formatPrice, formatStockLocation, parseAndGroupCommaSeparatedItems, formatItemListWithSummary } from '@/lib/salesLogger';
-import { getArchiveMonths } from '@/lib/google/archival';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,33 +30,13 @@ export async function GET(
 
   try {
     const { id } = await params;
-    let rows = await readAllRows('sales');
-    let targetModuleKey = 'sales';
+    const rows = await readAllRows('sales');
+    const targetModuleKey = 'sales';
 
-    let headerMap = buildHeaderMap(rows[0] ?? []);
-    let rowIndex = rows.slice(1).findIndex(
+    const headerMap = buildHeaderMap(rows[0] ?? []);
+    const rowIndex = rows.slice(1).findIndex(
       (row) => getCellByHeader(row, headerMap, 'Invoice Number') === id || String(rows.indexOf(row) + 2) === id
     );
-
-    // If not in live sales tab, search past sales archive tabs
-    if (rowIndex === -1) {
-      const archives = await getArchiveMonths('sales');
-      for (const arch of archives) {
-        const archRows = await readAllRows(arch.key);
-        if (archRows.length < 2) continue;
-        const archMap = buildHeaderMap(archRows[0]);
-        const foundIdx = archRows.slice(1).findIndex(
-          (row) => getCellByHeader(row, archMap, 'Invoice Number') === id || String(archRows.indexOf(row) + 2) === id
-        );
-        if (foundIdx !== -1) {
-          rows = archRows;
-          headerMap = archMap;
-          rowIndex = foundIdx;
-          targetModuleKey = arch.key;
-          break;
-        }
-      }
-    }
 
     if (rowIndex === -1 || rows.length < 2) {
       return Response.json(

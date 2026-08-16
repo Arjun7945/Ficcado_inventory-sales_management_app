@@ -371,9 +371,8 @@ export async function generateInvoicePdf(sale: InvoiceSaleData): Promise<Buffer>
       .fillColor(statusColor)
       .text(sale.paymentStatus || 'Not Paid', pColX.status, pValY);
 
-    const isPaid = sale.paymentStatus === 'Paid';
-    const displayMode = isPaid ? ((sale.modeOfPayment && sale.modeOfPayment !== 'N/A') ? sale.modeOfPayment : 'Cash') : '—';
-    const displayTxn  = (isPaid && displayMode !== 'Cash') ? (sale.transactionId && sale.transactionId !== 'N/A' && sale.transactionId.trim() ? sale.transactionId : '—') : '—';
+    const displayMode = sale.modeOfPayment && sale.modeOfPayment !== 'N/A' ? sale.modeOfPayment : (sale.paymentStatus === 'Paid' ? 'Cash' : '—');
+    const displayTxn  = displayMode !== 'Cash' && sale.transactionId && sale.transactionId !== 'N/A' && sale.transactionId.trim() ? sale.transactionId : '—';
 
     doc
       .font('Helvetica')
