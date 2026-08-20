@@ -1,24 +1,20 @@
 /**
  * app/api/admins/[id]/route.ts
- * GET    /api/admins/[id] — get a single admin by S.No or name
- * PUT    /api/admins/[id] — update admin profile
- * DELETE /api/admins/[id] — delete admin
+ * GET    /api/admins/[id] — get a single admin by S.No or name (header-mapped)
+ * PUT    /api/admins/[id] — update admin profile (header-mapped)
+ * DELETE /api/admins/[id] — delete admin (header-mapped)
  */
 
 import { requireAuth } from '@/lib/auth';
 import { readAllRows, updateRow, deleteRow } from '@/lib/google/moduleSheet';
+import { buildHeaderMap, getCellByHeader, formatRowFromHeaderMap } from '@/lib/google/headerUtils';
 import { validate, AdminSchema } from '@/lib/validation';
 import { logActivity } from '@/lib/activityLogger';
+import { MODULE_REGISTRY } from '@/lib/google/moduleRegistry';
 
 export const dynamic = 'force-dynamic';
 
-const COL = { sno: 0, adminName: 1, phone: 2, email: 3, notifications: 4, passwordHash: 5, createdAt: 6, createdBy: 7, updatedAt: 8, updatedBy: 9 };
-
-function findRow(rows: any[][], id: string) {
-  return rows.slice(1).findIndex(
-    (r) => r[COL.sno] === id || r[COL.adminName]?.toLowerCase() === id.toLowerCase() || r[COL.email]?.toLowerCase() === id.toLowerCase()
-  );
-}
+const EXPECTED_HEADERS = MODULE_REGISTRY.admin_info.headers;
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -27,14 +23,26 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
   try {
     const rows = await readAllRows('admin_info');
-    const idx = findRow(rows, id);
+    if (rows.length < 2) return Response.json({ error: 'Admin not found.' }, { status: 404 });
+
+    const headerMap = buildHeaderMap(rows[0]);
+    const idx = rows.slice(1).findIndex(
+      (r) => getCellByHeader(r, headerMap, 'S.No') === id ||
+        getCellByHeader(r, headerMap, 'Admin Name').toLowerCase() === id.toLowerCase() ||
+        getCellByHeader(r, headerMap, 'Email ID').toLowerCase() === id.toLowerCase()
+    );
+
     if (idx === -1) return Response.json({ error: 'Admin not found.' }, { status: 404 });
     const row = rows[idx + 1];
     return Response.json({
       admin: {
-        sno: row[COL.sno], adminName: row[COL.adminName], phone: row[COL.phone],
-        email: row[COL.email], notifications: row[COL.notifications],
-        createdAt: row[COL.createdAt], updatedAt: row[COL.updatedAt],
+        sno:           getCellByHeader(row, headerMap, 'S.No'),
+        adminName:     getCellByHeader(row, headerMap, 'Admin Name'),
+        phone:         getCellByHeader(row, headerMap, 'Phone Number'),
+        email:         getCellByHeader(row, headerMap, 'Email ID'),
+        notifications: getCellByHeader(row, headerMap, 'Notifications', 'Enabled'),
+        createdAt:     getCellByHeader(row, headerMap, 'Created At'),
+        updatedAt:     getCellByHeader(row, headerMap, 'Updated At'),
       }
     });
   } catch (err) {
@@ -54,20 +62,41 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     if (!valid) return Response.json({ error: 'Validation failed', errors }, { status: 400 });
 
     const rows = await readAllRows('admin_info');
-    const idx = findRow(rows, id);
+    if (rows.length < 2) return Response.json({ error: 'Admin not found.' }, { status: 404 });
+
+    if (rows[0] && rows[0].length < EXPECTED_HEADERS.length) {
+      await updateRow('admin_info', 1, EXPECTED_HEADERS).catch(() => {});
+    }
+
+    const headerMap = buildHeaderMap(rows[0]);
+    const idx = rows.slice(1).findIndex(
+      (r) => getCellByHeader(r, headerMap, 'S.No') === id ||
+        getCellByHeader(r, headerMap, 'Admin Name').toLowerCase() === id.toLowerCase() ||
+        getCellByHeader(r, headerMap, 'Email ID').toLowerCase() === id.toLowerCase()
+    );
+
     if (idx === -1) return Response.json({ error: 'Admin not found.' }, { status: 404 });
 
     const row = rows[idx + 1];
     const rowIndex = idx + 2;
     const now = new Date().toISOString();
 
-    const updatedRow = [
-      row[COL.sno], data!.adminName, data!.phoneNumber, data!.emailId,
-      data!.notifications, row[COL.passwordHash],
-      row[COL.createdAt], row[COL.createdBy], now, admin.name,
-    ];
+    const adminObj = {
+      'S.No':          getCellByHeader(row, headerMap, 'S.No'),
+      'Admin Name':    data!.adminName,
+      'Phone Number':  data!.phoneNumber,
+      'Email ID':      data!.emailId,
+      'Notifications': data!.notifications,
+      'Password Hash': getCellByHeader(row, headerMap, 'Password Hash'),
+      'Created At':    getCellByHeader(row, headerMap, 'Created At'),
+      'Created By':    getCellByHeader(row, headerMap, 'Created By'),
+      'Updated At':    now,
+      'Updated By':    admin.name,
+    };
 
+    const updatedRow = formatRowFromHeaderMap(adminObj, EXPECTED_HEADERS);
     await updateRow('admin_info', rowIndex, updatedRow);
+
     await logActivity({ adminName: admin.name, action: 'updated', module: 'Admin Information', moduleKey: 'admin_info', recordId: data!.adminName });
 
     return Response.json({ success: true, message: `Admin '${data!.adminName}' updated.` });
@@ -84,11 +113,19 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
 
   try {
     const rows = await readAllRows('admin_info');
-    const idx = findRow(rows, id);
+    if (rows.length < 2) return Response.json({ error: 'Admin not found.' }, { status: 404 });
+
+    const headerMap = buildHeaderMap(rows[0]);
+    const idx = rows.slice(1).findIndex(
+      (r) => getCellByHeader(r, headerMap, 'S.No') === id ||
+        getCellByHeader(r, headerMap, 'Admin Name').toLowerCase() === id.toLowerCase() ||
+        getCellByHeader(r, headerMap, 'Email ID').toLowerCase() === id.toLowerCase()
+    );
+
     if (idx === -1) return Response.json({ error: 'Admin not found.' }, { status: 404 });
 
     const rowIndex = idx + 2;
-    const adminName = rows[idx + 1][COL.adminName];
+    const adminName = getCellByHeader(rows[idx + 1], headerMap, 'Admin Name');
     await deleteRow('admin_info', rowIndex);
     await logActivity({ adminName: admin.name, action: 'deleted', module: 'Admin Information', moduleKey: 'admin_info', recordId: adminName });
 

@@ -14,7 +14,17 @@ import { logActivity } from '@/lib/activityLogger';
 
 export const dynamic = 'force-dynamic';
 
-const PRESET_VENDOR_TYPES = ['Courier Partner', 'Designer', 'Printing', 'Marketing', 'Other'];
+const PRESET_VENDOR_TYPES = [
+  'Courier Partner',
+  'Designer Team',
+  'Printing Partner',
+  'Marketing Partners',
+  'Packing Team',
+  'Stock Management Team',
+  'Transportation Team',
+  'Handler Team',
+  'Other',
+];
 
 const EXPECTED_VENDOR_HEADERS = [
   'S.No',
@@ -43,9 +53,13 @@ function isShiftedRow(row: string[], headerMap: Map<string, number>): boolean {
   return isTotalAmountTimestamp || (isEmailPurposeText && !createdAtVal.includes('T')) || row.length === 11;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const auth = await getAuthSession();
   if ('errorResponse' in auth) return auth.errorResponse;
+
+  const { searchParams } = new URL(request.url);
+  const search = (searchParams.get('search') || '').trim().toLowerCase();
+  const vendorTypeFilter = (searchParams.get('vendorType') || '').trim().toLowerCase();
 
   try {
     const rows = await readAllRows('vendors');
@@ -138,7 +152,21 @@ export async function GET() {
       });
     }
 
-    return Response.json({ vendors });
+    let filtered = vendors;
+    if (search) {
+      filtered = filtered.filter((v) =>
+        v.vendorName.toLowerCase().includes(search) ||
+        v.purposeUse.toLowerCase().includes(search)
+      );
+    }
+    if (vendorTypeFilter) {
+      filtered = filtered.filter((v) =>
+        v.vendorType.toLowerCase() === vendorTypeFilter ||
+        v.displayType.toLowerCase() === vendorTypeFilter
+      );
+    }
+
+    return Response.json({ vendors: filtered });
   } catch (err: any) {
     return Response.json({ error: 'Failed to load vendors.', detail: err?.message }, { status: 500 });
   }

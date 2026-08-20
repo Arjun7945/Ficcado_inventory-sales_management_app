@@ -4,13 +4,13 @@
  * Reads and writes the SheetConfig tab in the bootstrap spreadsheet.
  * Returns a live mapping of moduleKey → { spreadsheetId, tabName, displayName }.
  *
- * This is the ONLY place that resolves module-to-sheet mappings.
- * Every other module in the app must call getModuleSheet() instead of
- * hardcoding a spreadsheet ID or tab name.
+ * Header-aware: checks rows from index 0, safely skips header row if present,
+ * and includes automatic fallback resolution so missing module entries never break reads.
  */
 
 import { getSheetsClient } from './sheetsClient';
 import { getBootstrapSpreadsheetId, SHEET_CONFIG_TAB } from './bootstrap';
+import { MODULE_REGISTRY } from './moduleRegistry';
 
 export interface ModuleSheetConfig {
   moduleKey:     string;
@@ -36,7 +36,7 @@ export function bustConfigCache(): void {
 
 /**
  * Read all rows from SheetConfig and return as a Map keyed by moduleKey.
- * Uses a 30-second in-memory TTL cache with single-flight request coalescing.
+ * Header-aware: checks every row, safely skips header row ('module_key').
  */
 export async function getSheetConfig(): Promise<Map<string, ModuleSheetConfig>> {
   const now = Date.now();
@@ -60,19 +60,52 @@ export async function getSheetConfig(): Promise<Map<string, ModuleSheetConfig>> 
 
       const rows = res.data.values ?? [];
       const map = new Map<string, ModuleSheetConfig>();
+      let dominantSpreadsheetId = '';
 
-      // Skip header row (index 0)
-      for (let i = 1; i < rows.length; i++) {
-        const [module_key, display_name, sheet_id, tab_name, updated_at, updated_by] = rows[i];
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row || row.length < 3) continue;
+
+        const module_key = String(row[0] ?? '').trim();
+        if (!module_key || module_key.toLowerCase() === 'module_key' || module_key.toLowerCase() === 'module key') {
+          continue; // Skip header row
+        }
+
+        const display_name = String(row[1] ?? module_key).trim();
+        const sheet_id     = String(row[2] ?? '').trim();
+        const tab_name     = String(row[3] ?? module_key).trim();
+        const updated_at   = String(row[4] ?? '');
+        const updated_by   = String(row[5] ?? '');
+
+        if (sheet_id && !dominantSpreadsheetId) {
+          dominantSpreadsheetId = sheet_id;
+        }
+
         if (module_key && sheet_id && tab_name) {
-          map.set(String(module_key), {
-            moduleKey:     String(module_key),
-            displayName:   String(display_name ?? module_key),
-            spreadsheetId: String(sheet_id),
-            tabName:       String(tab_name),
-            updatedAt:     String(updated_at ?? ''),
-            updatedBy:     String(updated_by ?? ''),
+          map.set(module_key, {
+            moduleKey:     module_key,
+            displayName:   display_name || (MODULE_REGISTRY[module_key]?.displayName ?? module_key),
+            spreadsheetId: sheet_id,
+            tabName:       tab_name || (MODULE_REGISTRY[module_key]?.tabName ?? module_key),
+            updatedAt:     updated_at,
+            updatedBy:     updated_by,
           });
+        }
+      }
+
+      // Safety Fallback: Ensure all registered modules in MODULE_REGISTRY have an entry
+      if (dominantSpreadsheetId) {
+        for (const [key, def] of Object.entries(MODULE_REGISTRY)) {
+          if (!map.has(key)) {
+            map.set(key, {
+              moduleKey:     key,
+              displayName:   def.displayName,
+              spreadsheetId: dominantSpreadsheetId,
+              tabName:       def.tabName,
+              updatedAt:     new Date().toISOString(),
+              updatedBy:     'System Fallback',
+            });
+          }
         }
       }
 
@@ -89,7 +122,6 @@ export async function getSheetConfig(): Promise<Map<string, ModuleSheetConfig>> 
 
 /**
  * Write or update a single module entry in SheetConfig.
- * Also busts the cache so subsequent reads get fresh data.
  */
 export async function setModuleConfig(
   moduleKey: string,
@@ -100,7 +132,6 @@ export async function setModuleConfig(
   const sheets = await getSheetsClient();
   const updatedAt = new Date().toISOString();
 
-  // Find existing row for this moduleKey
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: bootstrapId,
     range: `${SHEET_CONFIG_TAB}!A:A`,
@@ -109,20 +140,20 @@ export async function setModuleConfig(
   const rows = res.data.values ?? [];
   let existingRow = -1;
 
-  for (let i = 1; i < rows.length; i++) {
-    if (rows[i][0] === moduleKey) {
+  for (let i = 0; i < rows.length; i++) {
+    const keyInRow = String(rows[i]?.[0] ?? '').trim();
+    if (keyInRow === moduleKey) {
       existingRow = i + 1;
       break;
     }
   }
 
-  // Get the current display name to preserve it if not being updated
   let displayName = updates.displayName;
   if (!displayName && existingRow > 0) {
     const current = await getSheetConfig();
-    displayName = current.get(moduleKey)?.displayName ?? moduleKey;
+    displayName = current.get(moduleKey)?.displayName ?? MODULE_REGISTRY[moduleKey]?.displayName ?? moduleKey;
   }
-  if (!displayName) displayName = moduleKey;
+  if (!displayName) displayName = MODULE_REGISTRY[moduleKey]?.displayName ?? moduleKey;
 
   const rowData = [moduleKey, displayName, updates.spreadsheetId, updates.tabName, updatedAt, updatedBy];
 
@@ -155,7 +186,6 @@ export async function getAllModuleConfigs(): Promise<ModuleSheetConfig[]> {
 
 /**
  * Update the global Spreadsheet ID for all modules in SheetConfig.
- * Preserves tab names and display names while propagating the single global ID.
  */
 export async function updateGlobalSpreadsheetId(
   newSpreadsheetId: string,
@@ -171,25 +201,22 @@ export async function updateGlobalSpreadsheetId(
   });
 
   const rows = res.data.values ?? [];
-  const existingMap = new Map<string, number>(); // moduleKey -> rowIndex (1-indexed)
+  const existingMap = new Map<string, number>();
 
-  for (let i = 1; i < rows.length; i++) {
-    if (rows[i][0]) {
-      existingMap.set(String(rows[i][0]), i + 1);
+  for (let i = 0; i < rows.length; i++) {
+    const key = String(rows[i]?.[0] ?? '').trim();
+    if (key && key.toLowerCase() !== 'module_key' && key.toLowerCase() !== 'module key') {
+      existingMap.set(key, i + 1);
     }
   }
 
-  // Get dynamic module registry to ensure every current module is updated or appended
-  const { getRegisteredModules } = await import('./moduleRegistry');
-  const registeredModules = getRegisteredModules();
-
+  const registeredModules = Object.values(MODULE_REGISTRY);
   const updateRequests: any[] = [];
   const appendRowsList: any[][] = [];
 
   for (const mod of registeredModules) {
     const rowIndex = existingMap.get(mod.key);
     if (rowIndex) {
-      // Get existing display name and tab name if present, else fallback to registry
       const existingRowData = rows[rowIndex - 1];
       const displayName = String(existingRowData[1] || mod.displayName);
       const tabName = String(existingRowData[3] || mod.tabName);
@@ -204,7 +231,6 @@ export async function updateGlobalSpreadsheetId(
     }
   }
 
-  // Update any remaining existing rows that might not be in MODULE_REGISTRY
   for (const [key, rowIndex] of existingMap.entries()) {
     const existingRowData = rows[rowIndex - 1];
     const displayName = String(existingRowData[1] || key);
@@ -215,7 +241,6 @@ export async function updateGlobalSpreadsheetId(
     });
   }
 
-  // Perform batch updates for existing rows
   if (updateRequests.length > 0) {
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId: bootstrapId,
@@ -226,7 +251,6 @@ export async function updateGlobalSpreadsheetId(
     });
   }
 
-  // Append any missing registered module rows
   if (appendRowsList.length > 0) {
     await sheets.spreadsheets.values.append({
       spreadsheetId: bootstrapId,
@@ -238,4 +262,3 @@ export async function updateGlobalSpreadsheetId(
 
   bustConfigCache();
 }
-

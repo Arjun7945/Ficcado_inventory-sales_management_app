@@ -13,7 +13,17 @@ import { logActivity } from '@/lib/activityLogger';
 
 export const dynamic = 'force-dynamic';
 
-const PRESET_VENDOR_TYPES = ['Courier Partner', 'Designer', 'Printing', 'Marketing', 'Other'];
+const PRESET_VENDOR_TYPES = [
+  'Courier Partner',
+  'Designer Team',
+  'Printing Partner',
+  'Marketing Partners',
+  'Packing Team',
+  'Stock Management Team',
+  'Transportation Team',
+  'Handler Team',
+  'Other',
+];
 
 const EXPECTED_VENDOR_HEADERS = [
   'S.No',

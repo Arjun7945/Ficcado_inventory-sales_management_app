@@ -236,7 +236,7 @@ export async function PUT(
         'Invoice Number': id,
         'Item Verification Status': 'Not Received — In Transit',
         'Refund Status': 'Refund Pending',
-        'Refund Amount': getCellByHeader(row, headerMap, 'Total Amount', '0'),
+        'Refund Amount': '0',
         'Transaction ID': getCellByHeader(row, headerMap, 'Transaction ID'),
         'Mode of Refund': getCellByHeader(row, headerMap, 'Mode of Payment', 'Cash'),
         'Created At': now,

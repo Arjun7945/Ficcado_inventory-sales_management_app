@@ -423,7 +423,35 @@ export default function AdminControlPage() {
               <div style={{ fontSize: 13, color: 'var(--color-ink-muted)' }}>Click "+ Add Admin" to invite team members.</div>
             </div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
+          <>
+            {/* Mobile View Card List */}
+            <div className="mobile-only mobile-card-list" style={{ padding: 12 }}>
+              {admins.map((adm) => (
+                <div key={adm.email + adm.sno} className="mobile-data-card">
+                  <div className="mobile-data-card-header">
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>{adm.adminName}</span>
+                    <span className={`badge ${adm.notifications === 'Enabled' ? 'badge-success' : 'badge-neutral'}`}>
+                      {adm.notifications}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>✉ {adm.email}</div>
+                  <div style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>📞 {adm.phone}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginTop: 4 }}>
+                    <span>Sales: <strong>{adm.salesClosed ?? 0} closed</strong></span>
+                    <span className="tabular-nums" style={{ fontWeight: 700, color: 'var(--color-brand-primary)' }}>
+                      ₹{(adm.revenueGenerated ?? 0).toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                  <div className="mobile-data-card-actions">
+                    <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => openEditAdminModal(adm)}>View / Edit</button>
+                    <button className="btn btn-danger btn-sm" onClick={() => handleDeleteAdmin(adm)}>Delete</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table View */}
+            <div className="desktop-only" style={{ overflowX: 'auto' }}>
               <table className="data-table">
                 <thead>
                   <tr>
@@ -472,6 +500,7 @@ export default function AdminControlPage() {
                 </tbody>
               </table>
             </div>
+          </>
           )}
         </div>
       )}

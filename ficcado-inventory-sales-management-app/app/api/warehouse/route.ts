@@ -1,19 +1,20 @@
 /**
  * app/api/warehouse/route.ts
- * GET  /api/warehouse — list warehouse entries & unallocated inventory balances
- * POST /api/warehouse — create warehouse allocation entry with hard inventory capping
+ * GET  /api/warehouse — list warehouse entries & unallocated inventory balances (header-mapped)
+ * POST /api/warehouse — create warehouse allocation entry with hard inventory capping (header-mapped)
  */
 
 import { requireAuth } from '@/lib/auth';
-import { readAllRows, appendRows } from '@/lib/google/moduleSheet';
+import { readAllRows, appendRows, updateRow } from '@/lib/google/moduleSheet';
+import { buildHeaderMap, getCellByHeader, formatRowFromHeaderMap } from '@/lib/google/headerUtils';
 import { validate, WarehouseSchema } from '@/lib/validation';
 import { logActivity } from '@/lib/activityLogger';
 import { recordInventoryHistory } from '@/lib/inventoryHistory';
+import { MODULE_REGISTRY } from '@/lib/google/moduleRegistry';
 
 export const dynamic = 'force-dynamic';
 
-const COL_W = { sno: 0, location: 1, handler: 2, itemName: 3, size: 4, qty: 5, createdBy: 6, createdAt: 7, updatedBy: 8, updatedAt: 9 };
-const COL_INV = { itemName: 1, size: 2, totalQty: 3 };
+const EXPECTED_HEADERS = MODULE_REGISTRY.warehouse.headers;
 
 export async function GET() {
   try { await requireAuth(); }
@@ -26,29 +27,42 @@ export async function GET() {
       readAllRows('admin_info'),
     ]);
 
+    if (wRows.length === 0) {
+      await updateRow('warehouse', 1, EXPECTED_HEADERS).catch(() => {});
+      return Response.json({ warehouse: [], admins: [], inventoryStock: [] });
+    }
+
+    if (wRows[0] && wRows[0].length < EXPECTED_HEADERS.length) {
+      await updateRow('warehouse', 1, EXPECTED_HEADERS).catch(() => {});
+    }
+
+    const wMap = buildHeaderMap(wRows[0]);
+    const invMapHeaders = buildHeaderMap(invRows[0] ?? []);
+    const adminMap = buildHeaderMap(adminRows[0] ?? []);
+
     // Parse warehouse rows
     const warehouse = wRows.slice(1).map((row, i) => ({
       rowIndex: i + 2,
-      location: row[COL_W.location] ?? '',
-      handler:  row[COL_W.handler]  ?? '',
-      itemName: row[COL_W.itemName] ?? '',
-      size:     row[COL_W.size]     ?? '',
-      qty:      parseInt(row[COL_W.qty] ?? '0', 10) || 0,
-      updatedAt: row[COL_W.updatedAt] ?? '',
+      location: getCellByHeader(row, wMap, 'Warehouse Location'),
+      handler:  getCellByHeader(row, wMap, 'Handler Name'),
+      itemName: getCellByHeader(row, wMap, 'Item Name'),
+      size:     getCellByHeader(row, wMap, 'Size'),
+      qty:      parseInt(getCellByHeader(row, wMap, 'Quantity', '0'), 10) || 0,
+      updatedAt: getCellByHeader(row, wMap, 'Updated At'),
     })).filter((w) => w.location);
 
     // Parse admins list for handler dropdown
     const admins = adminRows.slice(1)
-      .map((r) => (r[1] ?? '').trim())
+      .map((r) => getCellByHeader(r, adminMap, 'Admin Name').trim())
       .filter(Boolean);
 
     // Calculate live unallocated balances per item+size from Inventory
     const inventoryStock: Record<string, { itemName: string; size: string; totalQty: number; allocatedQty: number; remainingQty: number }> = {};
 
     for (const row of invRows.slice(1)) {
-      const name = (row[COL_INV.itemName] ?? '').trim();
-      const size = (row[COL_INV.size] ?? '').trim();
-      const totalQty = parseInt(row[COL_INV.totalQty] ?? '0', 10) || 0;
+      const name = getCellByHeader(row, invMapHeaders, 'Item Name').trim();
+      const size = getCellByHeader(row, invMapHeaders, 'Size').trim();
+      const totalQty = parseInt(getCellByHeader(row, invMapHeaders, 'Total Quantity Available', getCellByHeader(row, invMapHeaders, 'Quantity', '0')), 10) || 0;
 
       if (name && size) {
         const key = `${name.toLowerCase()}:${size.toUpperCase()}`;
@@ -90,7 +104,6 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
 
-    // Normalize items array to support both flat [{ itemName, size, qty }] and nested [{ itemName, sizes: [...] }]
     const normalizedItems: { itemName: string; size: string; qty: number }[] = [];
     if (Array.isArray(body.items)) {
       for (const it of body.items) {
@@ -132,12 +145,19 @@ export async function POST(request: Request) {
       readAllRows('inventory'),
     ]);
 
+    if (wRows.length === 0 || (wRows[0] && wRows[0].length < EXPECTED_HEADERS.length)) {
+      await updateRow('warehouse', 1, EXPECTED_HEADERS).catch(() => {});
+    }
+
+    const wMapHeaders   = buildHeaderMap(wRows[0] ?? []);
+    const invMapHeaders = buildHeaderMap(invRows[0] ?? []);
+
     // Build Inventory totals map (normalized key)
     const invMap: Record<string, number> = {};
     for (const row of invRows.slice(1)) {
-      const name = (row[COL_INV.itemName] ?? '').trim();
-      const size = (row[COL_INV.size] ?? '').trim();
-      const totalQty = parseInt(row[COL_INV.totalQty] ?? '0', 10) || 0;
+      const name = getCellByHeader(row, invMapHeaders, 'Item Name').trim();
+      const size = getCellByHeader(row, invMapHeaders, 'Size').trim();
+      const totalQty = parseInt(getCellByHeader(row, invMapHeaders, 'Total Quantity Available', getCellByHeader(row, invMapHeaders, 'Quantity', '0')), 10) || 0;
       if (name && size) {
         invMap[`${name.toLowerCase()}:${size.toUpperCase()}`] = totalQty;
       }
@@ -148,10 +168,10 @@ export async function POST(request: Request) {
     const handlerStockMap: Record<string, number> = {};
 
     for (const row of wRows.slice(1)) {
-      const name = (row[COL_W.itemName] ?? '').trim();
-      const size = (row[COL_W.size] ?? '').trim();
-      const handler = (row[COL_W.handler] ?? '').trim();
-      const qty = parseInt(row[COL_W.qty] ?? '0', 10) || 0;
+      const name = getCellByHeader(row, wMapHeaders, 'Item Name').trim();
+      const size = getCellByHeader(row, wMapHeaders, 'Size').trim();
+      const handler = getCellByHeader(row, wMapHeaders, 'Handler Name').trim();
+      const qty = parseInt(getCellByHeader(row, wMapHeaders, 'Quantity', '0'), 10) || 0;
 
       if (name && size) {
         const key = `${name.toLowerCase()}:${size.toUpperCase()}`;
@@ -179,7 +199,7 @@ export async function POST(request: Request) {
 
     // Commit allocations
     const now = new Date().toISOString();
-    let currentRowsCount = wRows.length;
+    let currentRowsCount = Math.max(wRows.length - 1, 0);
     const rowsToAppend: string[][] = [];
 
     for (const item of normalizedItems) {
@@ -189,10 +209,20 @@ export async function POST(request: Request) {
       const size = item.size.trim();
       const qty = item.qty;
 
-      rowsToAppend.push([
-        sno, warehouseLocation.trim(), handlerName.trim(), itemName,
-        size, String(qty), admin.name, now, admin.name, now,
-      ]);
+      const wObj = {
+        'S.No':               sno,
+        'Warehouse Location': warehouseLocation.trim(),
+        'Handler Name':       handlerName.trim(),
+        'Item Name':          itemName,
+        'Size':               size,
+        'Quantity':           String(qty),
+        'Created By':         admin.name,
+        'Created At':         now,
+        'Updated By':         admin.name,
+        'Updated At':         now,
+      };
+
+      rowsToAppend.push(formatRowFromHeaderMap(wObj, EXPECTED_HEADERS));
 
       const key = `${itemName.toLowerCase()}:${size.toUpperCase()}`;
       const newHandlerBalance = (handlerStockMap[key] || 0) + qty;

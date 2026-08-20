@@ -3,9 +3,13 @@
  *
  * Helper SDK for logging audit trail entries into the Inventory History Tracker sheet (moduleKey: 'inventory_history').
  * Every quantity change in Inventory or Warehouse writes a row here.
+ *
+ * Header-mapped & Auto-Header synced formatting.
  */
 
-import { appendRows } from './google/moduleSheet';
+import { appendRows, readAllRows, updateRow } from './google/moduleSheet';
+import { formatRowFromHeaderMap } from './google/headerUtils';
+import { MODULE_REGISTRY } from './google/moduleRegistry';
 
 export interface InventoryHistoryRecord {
   itemName:             string;
@@ -23,37 +27,46 @@ export interface InventoryHistoryRecord {
                         | 'Damaged Disposal'
                         | 'Manual Adjustment';
   relatedInvoiceNumber?: string;
-  resultingBalance:     number;
+  resultingBalance?:    number | string;
   createdBy:            string;
   notes?:               string;
 }
 
-/**
- * Appends a row to the Inventory History Tracker sheet.
- * Silently catches errors if logging fails so primary operations aren't blocked,
- * but logs error details to console.
- */
+const EXPECTED_HEADERS = MODULE_REGISTRY.inventory_history.headers;
+
 export async function recordInventoryHistory(record: InventoryHistoryRecord): Promise<void> {
   try {
     const now = new Date().toISOString();
     const formattedQuantity = record.quantityChange > 0 ? `+${record.quantityChange}` : `${record.quantityChange}`;
 
-    await appendRows('inventory_history', [
-      [
-        '', // S.No — auto calculated or blank
-        record.itemName,
-        record.size,
-        formattedQuantity,
-        record.affectedSheet,
-        record.handler ?? '',
-        record.transactionType,
-        record.relatedInvoiceNumber ?? '',
-        record.resultingBalance,
-        now,
-        record.createdBy,
-        record.notes ?? '',
-      ],
-    ]);
+    const rows = await readAllRows('inventory_history').catch(() => []);
+    if (rows.length === 0 || (rows[0] && rows[0].length < EXPECTED_HEADERS.length)) {
+      await updateRow('inventory_history', 1, EXPECTED_HEADERS).catch(() => {});
+    }
+
+    const sno = String(Math.max(rows.length - 1, 0) + 1);
+
+    const resultingBalanceVal = record.transactionType === 'Damaged Disposal'
+      ? 'N/A — sent to Damaged Products, no Inventory/Warehouse change'
+      : String(record.resultingBalance ?? '');
+
+    const historyObj = {
+      'S.No':                   sno,
+      'Item Name':              record.itemName,
+      'Size':                   record.size,
+      'Quantity Change':        formattedQuantity,
+      'Affected Sheet':         record.affectedSheet,
+      'Handler (if Warehouse)': record.handler ?? '',
+      'Transaction Type':       record.transactionType,
+      'Related Invoice Number': record.relatedInvoiceNumber ?? '',
+      'Resulting Balance':      resultingBalanceVal,
+      'Created At':             now,
+      'Created By':             record.createdBy,
+      'Notes':                  record.notes ?? '',
+    };
+
+    const newRow = formatRowFromHeaderMap(historyObj, EXPECTED_HEADERS);
+    await appendRows('inventory_history', [newRow]);
   } catch (err) {
     console.error('[InventoryHistory] Failed to record history entry:', err, record);
   }

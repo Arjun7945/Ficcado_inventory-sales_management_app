@@ -9,6 +9,7 @@
 import React, { useEffect, useState } from 'react';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
+import StatusBadge from '@/components/StatusBadge';
 import { formatISTDateTime } from '@/lib/dateUtils';
 
 interface InventoryItem {
@@ -241,52 +242,83 @@ export default function InventoryPage() {
             </div>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Item Name</th>
-                  <th>Size</th>
-                  <th>Quantity Available</th>
-                  <th>Stock Status</th>
-                  <th>Last Updated</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredInventory.map((inv, idx) => {
-                  const q = inv.qty;
-                  const isLow = q === 0;
-                  return (
-                    <tr key={inv.itemName + inv.size + idx}>
-                      <td style={{ fontWeight: 600 }}>{inv.itemName}</td>
-                      <td>
-                        <span className="badge badge-neutral" style={{ fontWeight: 700 }}>
-                          {inv.size}
-                        </span>
-                      </td>
-                      <td className="tabular-nums" style={{ fontWeight: 700, fontSize: 15 }}>
+          <>
+            {/* Mobile View Card List */}
+            <div className="mobile-only mobile-card-list" style={{ padding: 12 }}>
+              {filteredInventory.map((inv, idx) => {
+                const q = inv.qty;
+                const statusStr = q === 0 ? 'Out of Stock' : q < 5 ? 'Low Stock' : 'In Stock';
+                return (
+                  <div key={inv.itemName + inv.size + idx} className="mobile-data-card">
+                    <div className="mobile-data-card-header">
+                      <span style={{ fontWeight: 700, fontSize: 14 }}>{inv.itemName}</span>
+                      <StatusBadge status={statusStr} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+                      <span>Size: <strong>{inv.size}</strong></span>
+                      <span className="tabular-nums" style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-brand-primary)' }}>
                         {q} piece(s)
-                      </td>
-                      <td>
-                        <span className={`badge ${isLow ? 'badge-error' : q < 5 ? 'badge-warning' : 'badge-success'}`}>
-                          {isLow ? 'Out of Stock' : q < 5 ? 'Low Stock' : 'In Stock'}
-                        </span>
-                      </td>
-                      <td style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>
-                        {formatISTDateTime(inv.updatedAt)}
-                      </td>
-                      <td>
-                        <button className="btn btn-ghost btn-sm" onClick={() => handleOpenEdit(inv)}>
-                          Edit
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--color-ink-muted)' }}>
+                      Updated: {formatISTDateTime(inv.updatedAt)}
+                    </div>
+                    <div className="mobile-data-card-actions">
+                      <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => handleOpenEdit(inv)}>
+                        ✎ Edit Stock
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop/Tablet Data Table View */}
+            <div className="desktop-only" style={{ overflowX: 'auto' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Item Name</th>
+                    <th>Size</th>
+                    <th>Quantity Available</th>
+                    <th>Stock Status</th>
+                    <th>Last Updated</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredInventory.map((inv, idx) => {
+                    const q = inv.qty;
+                    const statusStr = q === 0 ? 'Out of Stock' : q < 5 ? 'Low Stock' : 'In Stock';
+                    return (
+                      <tr key={inv.itemName + inv.size + idx}>
+                        <td style={{ fontWeight: 600 }}>{inv.itemName}</td>
+                        <td>
+                          <span className="badge badge-neutral" style={{ fontWeight: 700 }}>
+                            {inv.size}
+                          </span>
+                        </td>
+                        <td className="tabular-nums" style={{ fontWeight: 700, fontSize: 15 }}>
+                          {q} piece(s)
+                        </td>
+                        <td>
+                          <StatusBadge status={statusStr} />
+                        </td>
+                        <td style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>
+                          {formatISTDateTime(inv.updatedAt)}
+                        </td>
+                        <td>
+                          <button className="btn btn-ghost btn-sm" onClick={() => handleOpenEdit(inv)}>
+                            Edit
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 

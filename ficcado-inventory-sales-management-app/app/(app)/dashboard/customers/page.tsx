@@ -251,93 +251,130 @@ export default function CustomersPage() {
             </p>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table className="table">
-              <thead>
-                <tr>
-                  <th style={{ width: 50, textAlign: 'center' }}>#</th>
-                  <th>Customer Name</th>
-                  <th>Phone Number</th>
-                  <th>Email Address</th>
-                  <th>Saved Addresses</th>
-                  <th style={{ textAlign: 'center' }}>Total Orders</th>
-                  <th>Related Invoices</th>
-                  <th style={{ textAlign: 'center' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredCustomers.map((c, idx) => {
-                  const addrList = Array.isArray(c.addresses) && c.addresses.length > 0
-                    ? c.addresses
-                    : c.address ? [{ label: 'Default', address: c.address }] : [];
-                  return (
-                    <tr key={c.phone || idx}>
-                      <td style={{ textAlign: 'center', color: 'var(--color-ink-muted)', fontSize: 13, fontWeight: 600 }}>
-                        {c.sno || idx + 1}
-                      </td>
-                      <td style={{ fontWeight: 600, color: 'var(--color-ink)' }}>
-                        {c.name || '—'}
-                      </td>
-                      <td>
-                        <code style={{
-                          fontSize: 12.5,
-                          fontFamily: 'monospace',
-                          fontWeight: 600,
-                          color: 'var(--color-brand-primary)',
-                          background: 'rgba(43,98,198,0.06)',
-                          padding: '2px 6px',
-                          borderRadius: 4,
-                        }}>
-                          {c.phone || '—'}
-                        </code>
-                      </td>
-                      <td>
-                        {c.email ? (
-                          <span style={{ fontSize: 13, color: 'var(--color-ink)' }}>{c.email}</span>
-                        ) : (
-                          <span className="badge badge-warning">No Email</span>
-                        )}
-                      </td>
-                      <td style={{ fontSize: 12.5 }}>
-                        {addrList.length === 0 ? (
-                          <span style={{ color: 'var(--color-ink-muted)' }}>—</span>
-                        ) : (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                            {addrList.slice(0, 2).map((a, ai) => (
-                              <div key={ai} style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                                <span className="badge badge-neutral" style={{ fontSize: 10, padding: '1px 5px', flexShrink: 0 }}>{a.label || 'Address'}</span>
-                                <span style={{ color: 'var(--color-ink-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{a.address}</span>
-                              </div>
-                            ))}
-                            {addrList.length > 2 && (
-                              <span style={{ fontSize: 11, color: 'var(--color-brand-primary)' }}>+{addrList.length - 2} more</span>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        <span className="badge badge-success" style={{ fontWeight: 700, padding: '3px 10px' }}>
-                          {c.totalOrders || '1'} order(s)
-                        </span>
-                      </td>
-                      <td style={{ fontSize: 12.5, color: 'var(--color-ink-muted)', maxWidth: 180, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {c.invoiceNumbers ? (
-                          <span style={{ fontFamily: 'monospace', color: 'var(--color-brand-primary)', fontWeight: 600 }}>
-                            {c.invoiceNumbers}
+          <>
+            {/* Mobile View Card List */}
+            <div className="mobile-only mobile-card-list" style={{ padding: 12 }}>
+              {filteredCustomers.map((c, idx) => {
+                const addrList = Array.isArray(c.addresses) && c.addresses.length > 0
+                  ? c.addresses
+                  : c.address ? [{ label: 'Default', address: c.address }] : [];
+                return (
+                  <div key={c.phone || idx} className="mobile-data-card">
+                    <div className="mobile-data-card-header">
+                      <span style={{ fontWeight: 700, fontSize: 14 }}>{c.name || 'Customer'}</span>
+                      <span className="badge badge-success">{c.totalOrders || '1'} order(s)</span>
+                    </div>
+                    <div style={{ fontSize: 13, color: 'var(--color-brand-primary)', fontWeight: 600 }}>
+                      📞 {c.phone || '—'}
+                    </div>
+                    {c.email && (
+                      <div style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>✉ {c.email}</div>
+                    )}
+                    {addrList.length > 0 && (
+                      <div style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>
+                        📍 {addrList[0].label}: {addrList[0].address}
+                      </div>
+                    )}
+                    <div className="mobile-data-card-actions">
+                      <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => openCustomerDetailModal(c)}>
+                        View Profile & Orders
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop Table View */}
+            <div className="desktop-only" style={{ overflowX: 'auto' }}>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th style={{ width: 50, textAlign: 'center' }}>#</th>
+                    <th>Customer Name</th>
+                    <th>Phone Number</th>
+                    <th>Email Address</th>
+                    <th>Saved Addresses</th>
+                    <th style={{ textAlign: 'center' }}>Total Orders</th>
+                    <th>Related Invoices</th>
+                    <th style={{ textAlign: 'center' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredCustomers.map((c, idx) => {
+                    const addrList = Array.isArray(c.addresses) && c.addresses.length > 0
+                      ? c.addresses
+                      : c.address ? [{ label: 'Default', address: c.address }] : [];
+                    return (
+                      <tr key={c.phone || idx}>
+                        <td style={{ textAlign: 'center', color: 'var(--color-ink-muted)', fontSize: 13, fontWeight: 600 }}>
+                          {c.sno || idx + 1}
+                        </td>
+                        <td style={{ fontWeight: 600, color: 'var(--color-ink)' }}>
+                          {c.name || '—'}
+                        </td>
+                        <td>
+                          <code style={{
+                            fontSize: 12.5,
+                            fontFamily: 'monospace',
+                            fontWeight: 600,
+                            color: 'var(--color-brand-primary)',
+                            background: 'rgba(43,98,198,0.06)',
+                            padding: '2px 6px',
+                            borderRadius: 4,
+                          }}>
+                            {c.phone || '—'}
+                          </code>
+                        </td>
+                        <td>
+                          {c.email ? (
+                            <span style={{ fontSize: 13, color: 'var(--color-ink)' }}>{c.email}</span>
+                          ) : (
+                            <span className="badge badge-warning">No Email</span>
+                          )}
+                        </td>
+                        <td style={{ fontSize: 12.5 }}>
+                          {addrList.length === 0 ? (
+                            <span style={{ color: 'var(--color-ink-muted)' }}>—</span>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                              {addrList.slice(0, 2).map((a, ai) => (
+                                <div key={ai} style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                                  <span className="badge badge-neutral" style={{ fontSize: 10, padding: '1px 5px', flexShrink: 0 }}>{a.label || 'Address'}</span>
+                                  <span style={{ color: 'var(--color-ink-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{a.address}</span>
+                                </div>
+                              ))}
+                              {addrList.length > 2 && (
+                                <span style={{ fontSize: 11, color: 'var(--color-brand-primary)' }}>+{addrList.length - 2} more</span>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          <span className="badge badge-success" style={{ fontWeight: 700, padding: '3px 10px' }}>
+                            {c.totalOrders || '1'} order(s)
                           </span>
-                        ) : '—'}
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        <button className="btn btn-secondary btn-sm" onClick={() => openCustomerDetailModal(c)}>
-                          View & Edit Profile
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </td>
+                        <td>
+                          <span style={{ fontSize: 11.5, color: 'var(--color-ink-muted)', maxWidth: 200, display: 'block' }} className="truncate">
+                            {c.invoiceNumbers || '—'}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => openCustomerDetailModal(c)}
+                          >
+                            View / Edit Profile
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 

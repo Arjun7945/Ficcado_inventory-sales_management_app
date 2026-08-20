@@ -122,7 +122,13 @@ export async function GET(request: Request) {
 
         const custName   = getCellByHeader(row, rMap, 'Customer Name') || 'Customer';
         const custPhone  = getCellByHeader(row, rMap, 'Customer Phone Number');
-        const refAmt     = parseFloat(getCellByHeader(row, rMap, 'Refund Amount', '0')) || 0;
+        const rawRef     = getCellByHeader(row, rMap, 'Refund Amount');
+        const priceCharged = getCellByHeader(row, rMap, 'Price Charged (Returned Items)');
+        let refAmt = parseFloat(rawRef.replace(/[^0-9.]/g, '')) || 0;
+        if (refAmt === 0 && priceCharged) {
+          const parts = priceCharged.split(',').map((p) => parseFloat(p.replace(/[^0-9.]/g, '')) || 0);
+          refAmt = parts.reduce((a, b) => a + b, 0);
+        }
         const mode       = getCellByHeader(row, rMap, 'Mode of Refund', 'Cash');
         const rawTxnId   = getCellByHeader(row, rMap, 'Transaction ID');
         const completedAt = getCellByHeader(row, rMap, 'Refund Completed Date & Time') || getCellByHeader(row, rMap, 'Created At');

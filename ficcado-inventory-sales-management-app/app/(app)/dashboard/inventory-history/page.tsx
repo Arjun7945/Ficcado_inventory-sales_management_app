@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
 import MobileBackButton from '@/components/MobileBackButton';
+import StatusBadge from '@/components/StatusBadge';
 import { formatISTDateTime } from '@/lib/dateUtils';
 
 interface HistoryRecord {
@@ -29,17 +30,6 @@ interface HistoryRecord {
   createdBy:            string;
   notes:                string;
 }
-
-const TRANSACTION_BADGE: Record<string, string> = {
-  'Sale Deduction':                   'badge-error',
-  'Replacement — Old Item Restock':   'badge-success',
-  'Replacement — New Item Deduction': 'badge-warning',
-  'Refund Restock':                   'badge-success',
-  'Warehouse Allocation':             'badge-info',
-  'Warehouse Deallocation':           'badge-neutral',
-  'Damaged Disposal':                 'badge-error',
-  'Manual Adjustment':                'badge-neutral',
-};
 
 export default function InventoryHistoryPage() {
   const [history, setHistory]       = useState<HistoryRecord[]>([]);
@@ -142,9 +132,7 @@ export default function InventoryHistoryPage() {
                     </span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span className={`badge ${TRANSACTION_BADGE[h.transactionType] ?? 'badge-neutral'}`} style={{ fontSize: 11 }}>
-                      {h.transactionType}
-                    </span>
+                    <StatusBadge status={h.transactionType} />
                     {h.relatedInvoiceNumber && (
                       <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--color-brand-primary)', fontSize: 12 }}>
                         {h.relatedInvoiceNumber}
@@ -152,7 +140,7 @@ export default function InventoryHistoryPage() {
                     )}
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--color-ink-muted)', marginTop: 2, display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Resulting: {h.resultingBalance} pcs</span>
+                    <span>Resulting: {isNaN(Number(h.resultingBalance)) || !h.resultingBalance ? h.resultingBalance : `${h.resultingBalance} pcs`}</span>
                     <span>By {h.createdBy}</span>
                   </div>
                 </div>
@@ -193,6 +181,7 @@ export default function InventoryHistoryPage() {
                 {filtered.map((h, i) => {
                   const changeNum = parseFloat(h.quantityChange) || 0;
                   const isPositive = changeNum > 0;
+                  const isNumericBalance = !isNaN(Number(h.resultingBalance)) && h.resultingBalance !== '';
                   return (
                     <tr key={i}>
                       <td style={{ fontSize: 12, color: 'var(--color-ink-muted)', whiteSpace: 'nowrap' }}>
@@ -208,9 +197,7 @@ export default function InventoryHistoryPage() {
                         </span>
                       </td>
                       <td>
-                        <span className={`badge ${TRANSACTION_BADGE[h.transactionType] ?? 'badge-neutral'}`} style={{ fontSize: 11 }}>
-                          {h.transactionType}
-                        </span>
+                      <StatusBadge status={h.transactionType} />
                       </td>
                       <td>
                         <span className="badge badge-info">{h.affectedSheet}</span>
@@ -223,8 +210,8 @@ export default function InventoryHistoryPage() {
                           </span>
                         ) : '—'}
                       </td>
-                      <td className="tabular-nums" style={{ fontWeight: 700 }}>
-                        {h.resultingBalance} piece(s)
+                      <td className="tabular-nums" style={{ fontWeight: 700, fontSize: isNumericBalance ? 13 : 11 }}>
+                        {isNumericBalance ? `${h.resultingBalance} piece(s)` : h.resultingBalance}
                       </td>
                       <td style={{ fontSize: 12 }}>{h.createdBy}</td>
                       <td style={{ fontSize: 12, color: 'var(--color-ink-muted)', maxWidth: 180 }} className="truncate" title={h.notes}>

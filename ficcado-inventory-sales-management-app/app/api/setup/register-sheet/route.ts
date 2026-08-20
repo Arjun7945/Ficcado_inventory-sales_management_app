@@ -143,7 +143,7 @@ export async function POST(request: Request) {
         success: true,
         spreadsheetId: targetId,
         spreadsheetUrl,
-        message: `Successfully created all 13 module tabs with pre-formatted headers and registered them!`,
+        message: `Successfully created all 17 module tabs with pre-formatted headers and registered them!`,
         results,
       });
     }

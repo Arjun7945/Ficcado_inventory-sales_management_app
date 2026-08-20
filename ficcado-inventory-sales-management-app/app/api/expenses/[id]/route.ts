@@ -9,8 +9,9 @@
 
 import { getAuthSession } from '@/lib/auth';
 import { readAllRows, updateRow, deleteRow } from '@/lib/google/moduleSheet';
-import { buildHeaderMap, getCellByHeader } from '@/lib/google/headerUtils';
+import { buildHeaderMap, getCellByHeader, formatRowFromHeaderMap } from '@/lib/google/headerUtils';
 import { logActivity } from '@/lib/activityLogger';
+import { MODULE_REGISTRY } from '@/lib/google/moduleRegistry';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,6 +26,8 @@ const PRESET_CATEGORIES = [
   'Other',
 ];
 
+const EXPECTED_HEADERS = MODULE_REGISTRY.expenses.headers;
+
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await getAuthSession();
   if ('errorResponse' in auth) return auth.errorResponse;
@@ -34,6 +37,10 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   try {
     const rows = await readAllRows('expenses');
     if (rows.length < 2) return Response.json({ error: 'No expenses found.' }, { status: 404 });
+
+    if (rows[0] && rows[0].length < EXPECTED_HEADERS.length) {
+      await updateRow('expenses', 1, EXPECTED_HEADERS).catch(() => {});
+    }
 
     const headerMap = buildHeaderMap(rows[0]);
     const rowIdx = rows.slice(1).findIndex((r) => getCellByHeader(r, headerMap, 'S.No') === id);
@@ -58,19 +65,22 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     const now = new Date().toISOString();
     const newCategory       = category       ?? getCellByHeader(existingRow, headerMap, 'Expense Category');
     const newCustomCategory = newCategory === 'Other' ? (customCategory?.trim() ?? getCellByHeader(existingRow, headerMap, 'Custom Category')) : '';
-    const updatedRow = [
-      getCellByHeader(existingRow, headerMap, 'S.No'),
-      getCellByHeader(existingRow, headerMap, 'Admin Name'),
-      newCategory,
-      newCustomCategory,
-      description?.trim() ?? getCellByHeader(existingRow, headerMap, 'Description'),
-      amount !== undefined ? String(parseFloat(String(amount))) : getCellByHeader(existingRow, headerMap, 'Amount'),
-      dateOfExpense ?? getCellByHeader(existingRow, headerMap, 'Date of Expense'),
-      getCellByHeader(existingRow, headerMap, 'Created At'),
-      getCellByHeader(existingRow, headerMap, 'Created By'),
-      now,
-      admin.name,
-    ];
+
+    const rowObj = {
+      'S.No':             getCellByHeader(existingRow, headerMap, 'S.No'),
+      'Admin Name':        getCellByHeader(existingRow, headerMap, 'Admin Name'),
+      'Expense Category': newCategory,
+      'Custom Category':  newCustomCategory,
+      'Description':      description?.trim() ?? getCellByHeader(existingRow, headerMap, 'Description'),
+      'Amount':           amount !== undefined ? String(parseFloat(String(amount))) : getCellByHeader(existingRow, headerMap, 'Amount'),
+      'Date of Expense':  dateOfExpense ?? getCellByHeader(existingRow, headerMap, 'Date of Expense'),
+      'Created At':       getCellByHeader(existingRow, headerMap, 'Created At'),
+      'Created By':       getCellByHeader(existingRow, headerMap, 'Created By'),
+      'Updated At':       now,
+      'Updated By':       admin.name,
+    };
+
+    const updatedRow = formatRowFromHeaderMap(rowObj, EXPECTED_HEADERS);
 
     await updateRow('expenses', rowIdx + 2, updatedRow);
     await logActivity({

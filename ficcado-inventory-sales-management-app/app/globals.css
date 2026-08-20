@@ -8,34 +8,54 @@
 
 /* ---- CSS Custom Properties (brand tokens) ---- */
 :root {
-  /* Brand palette — extracted from gecko logo */
-  --color-brand-primary:    #2B62C6; /* royal blue — gecko body/limbs + wordmark */
-  --color-brand-secondary:  #B4D1EF; /* pale periwinkle — gecko tail/back       */
-  --color-bg:               #F4F0E5; /* warm cream — logo background             */
-  --color-surface:          #FFFFFF; /* cards, tables, modals                    */
-  --color-ink:              #22261E; /* warm near-black                          */
-  --color-ink-muted:        #6B6A5E; /* secondary text, captions                 */
-  --color-border:           #E2DCC9; /* table borders, input outlines            */
-  --color-success:          #2F7D4F; /* confirmations, saved states              */
-  --color-warning:          #B8862B; /* version conflicts, sync mismatches       */
-  --color-error:            #B0403A; /* validation errors, failed actions        */
+  /* Brand palette — Section 2 */
+  --color-brand-primary:   #2B62C6; /* royal blue — primary actions, active nav, focus */
+  --color-brand-secondary: #B4D1EF; /* pale periwinkle — secondary accents, highlights */
+  --color-bg:              #F4F0E5; /* warm cream — app shell background */
+  --color-surface:         #FFFFFF; /* cards, tables, modals, form panels */
+  --color-ink:             #22261E; /* primary text */
+  --color-ink-muted:       #6B6A5E; /* secondary text, captions */
+  --color-border:          #E2DCC9; /* table borders, input outlines, dividers */
+  --color-success:         #2F7D4F; /* confirmations, saved states, positive status pills */
+  --color-warning:         #B8862B; /* non-blocking warnings, pending-state pills */
+  --color-error:           #B0403A; /* validation errors, failed actions, destructive pills */
 
-  /* Typography */
+  /* Typography — Section 3 */
   --font-display: 'Space Grotesk', system-ui, sans-serif;
   --font-body:    'Inter', system-ui, sans-serif;
 
-  /* Spacing / layout */
-  --sidebar-width: 240px;
-  --topbar-height: 60px;
-  --radius-sm:   4px;
-  --radius-md:   8px;
-  --radius-lg:  12px;
-  --radius-xl:  16px;
+  /* Type scale — Section 3 */
+  --text-h1: 24px;
+  --text-h2: 18px;
+  --text-body: 14px;
+  --text-caption: 12px;
+  --text-label: 11px;
 
-  /* Shadows */
-  --shadow-sm:  0 1px 3px rgba(34,38,30,0.08);
+  /* Spacing system (8px base unit) — Section 4 */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* Border radius scale — Section 4 */
+  --radius-sm:   6px;
+  --radius-md:  10px;
+  --radius-lg:  14px;
+  --radius-full: 999px;
+
+  /* Elevation (shadow) scale — Section 4 */
+  --shadow-sm:  0 1px 2px rgba(34,38,30,0.06);
   --shadow-md:  0 4px 12px rgba(34,38,30,0.10);
-  --shadow-lg:  0 8px 24px rgba(34,38,30,0.12);
+  --shadow-lg:  0 12px 32px rgba(34,38,30,0.16);
+
+  /* Layout dimensions */
+  --sidebar-width: 250px;
+  --topbar-height: 60px;
 }
 
 /* ---- Base resets ---- */
@@ -236,20 +256,32 @@ h1, h2, h3, h4, h5, h6 {
    ============================================================ */
 
 /* --- Buttons --- */
+/* ============================================================
+   Reusable UI Primitives (Newdesign.md Section 7)
+   ============================================================ */
+
+/* --- Buttons (Section 7.1) --- */
 .btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  gap: var(--space-2);
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: var(--text-body);
   font-weight: 500;
-  padding: 8px 16px;
+  height: 36px;
+  padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-md);
-  border: none;
+  border: 1px solid transparent;
   cursor: pointer;
   transition: background-color 0.15s, box-shadow 0.15s, opacity 0.15s;
   white-space: nowrap;
   text-decoration: none;
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(43,98,198,0.40);
 }
 
 .btn:disabled {
@@ -257,48 +289,65 @@ h1, h2, h3, h4, h5, h6 {
   cursor: not-allowed;
 }
 
+/* Primary Variant */
 .btn-primary {
   background-color: var(--color-brand-primary);
   color: #ffffff;
+  border-color: var(--color-brand-primary);
 }
 .btn-primary:hover:not(:disabled) {
   background-color: #2254a8;
+  border-color: #2254a8;
   box-shadow: var(--shadow-sm);
 }
 
+/* Secondary Variant */
 .btn-secondary {
-  background-color: var(--color-brand-secondary);
-  color: var(--color-brand-primary);
+  background-color: #ffffff;
+  color: var(--color-ink);
+  border: 1px solid var(--color-border);
 }
 .btn-secondary:hover:not(:disabled) {
-  background-color: #9dc3e8;
+  background-color: var(--color-bg);
 }
 
+/* Destructive Variant */
+.btn-danger,
+.btn-destructive {
+  background-color: var(--color-error);
+  color: #ffffff;
+  border-color: var(--color-error);
+}
+.btn-danger:hover:not(:disabled),
+.btn-destructive:hover:not(:disabled) {
+  background-color: #932e29;
+  border-color: #932e29;
+}
+
+/* Ghost Variant */
 .btn-ghost {
   background-color: transparent;
   color: var(--color-ink-muted);
-  border: 1px solid var(--color-border);
+  border: 1px solid transparent;
 }
 .btn-ghost:hover:not(:disabled) {
   background-color: var(--color-bg);
   color: var(--color-ink);
 }
 
-.btn-danger {
-  background-color: var(--color-error);
-  color: #ffffff;
-}
-.btn-danger:hover:not(:disabled) {
-  background-color: #932e29;
-}
-
 .btn-sm {
-  padding: 5px 10px;
-  font-size: 13px;
+  height: 30px;
+  padding: 4px 10px;
+  font-size: var(--text-caption);
 }
 
 .btn-icon {
-  padding: 6px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -312,49 +361,51 @@ h1, h2, h3, h4, h5, h6 {
   border-color: var(--color-brand-primary);
 }
 
-/* --- Cards / Panels --- */
+/* --- Cards / Panels (Section 7.3) --- */
 .card {
   background-color: var(--color-surface);
-  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  padding: 20px;
+  padding: var(--space-6);
   box-shadow: var(--shadow-sm);
+}
+
+.card-bordered {
+  border: 1px solid var(--color-border);
 }
 
 .card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
-  padding-bottom: 14px;
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--color-border);
 }
 
-/* --- KPI Stats Grid --- */
+/* --- KPI Stats Grid (Section 6 & 7.3) --- */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
 }
 
 .stat-card {
   background-color: var(--color-surface);
-  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  padding: 18px 20px;
+  padding: var(--space-5);
   box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .stat-label {
-  font-size: 12px;
+  font-size: var(--text-label);
   font-weight: 600;
   color: var(--color-ink-muted);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.07em;
 }
 
 .stat-value {
@@ -365,92 +416,97 @@ h1, h2, h3, h4, h5, h6 {
   line-height: 1.2;
 }
 
-/* --- Forms / Inputs --- */
+/* --- Form Inputs (Section 7.2) --- */
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  margin-bottom: 16px;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
 }
 
 .form-label {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-caption);
+  font-weight: 500;
   color: var(--color-ink-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
 
 .form-input,
 .form-select,
 .form-textarea {
   width: 100%;
-  padding: 9px 12px;
+  height: 36px;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background-color: var(--color-surface);
   color: var(--color-ink);
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: var(--text-body);
   transition: border-color 0.15s, box-shadow 0.15s;
   outline: none;
+}
+
+.form-textarea {
+  height: auto;
+  min-height: 80px;
 }
 
 .form-input:focus,
 .form-select:focus,
 .form-textarea:focus {
   border-color: var(--color-brand-primary);
-  box-shadow: 0 0 0 3px rgba(43,98,198,0.12);
+  box-shadow: 0 0 0 2px rgba(43,98,198,0.40);
 }
 
 .form-input.error,
 .form-select.error,
 .form-textarea.error {
   border-color: var(--color-error);
-  box-shadow: 0 0 0 3px rgba(176,64,58,0.10);
+  box-shadow: 0 0 0 2px rgba(176,64,58,0.30);
 }
 
 .form-error {
-  font-size: 12px;
+  font-size: var(--text-caption);
   color: var(--color-error);
   margin-top: 2px;
 }
 
 .form-hint {
-  font-size: 12px;
+  font-size: var(--text-caption);
   color: var(--color-ink-muted);
   margin-top: 2px;
 }
 
-/* --- Tables --- */
+/* --- Tables (Section 7.5) --- */
 .data-table,
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13.5px;
+  font-size: var(--text-body);
 }
 
 .data-table thead tr,
 .table thead tr {
+  background-color: var(--color-bg);
   border-bottom: 2px solid var(--color-border);
 }
 
 .data-table th,
 .table th {
   font-family: var(--font-display);
-  font-size: 11px;
+  font-size: var(--text-label);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: var(--color-ink-muted);
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   text-align: left;
   white-space: nowrap;
 }
 
 .data-table td,
 .table td {
-  padding: 13px 16px;
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--color-border);
   vertical-align: middle;
 }
@@ -469,23 +525,42 @@ h1, h2, h3, h4, h5, h6 {
   background-color: rgba(180,209,239,0.30);
 }
 
-/* --- Badges / Tags --- */
+/* --- Status Badges / Pills (Section 7.4) --- */
 .badge {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
-  border-radius: 99px;
-  font-size: 11.5px;
+  justify-content: center;
+  height: 22px;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  font-size: var(--text-caption);
   font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
 }
 
-.badge-success  { background: rgba(47,125,79,0.12);  color: var(--color-success); }
-.badge-warning  { background: rgba(184,134,43,0.12); color: var(--color-warning); }
-.badge-error    { background: rgba(176,64,58,0.12);  color: var(--color-error);   }
-.badge-info     { background: rgba(43,98,198,0.10);  color: var(--color-brand-primary); }
-.badge-neutral  { background: var(--color-bg); color: var(--color-ink-muted); border: 1px solid var(--color-border); }
+.badge-success {
+  background-color: rgba(47,125,79,0.12);
+  color: var(--color-success);
+}
 
-/* --- Modal --- */
+.badge-warning {
+  background-color: rgba(184,134,43,0.12);
+  color: var(--color-warning);
+}
+
+.badge-error {
+  background-color: rgba(176,64,58,0.12);
+  color: var(--color-error);
+}
+
+.badge-info,
+.badge-neutral {
+  background-color: var(--color-brand-secondary);
+  color: var(--color-brand-primary);
+}
+
+/* --- Modals / Detail Panels (Section 7.6) --- */
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -499,7 +574,7 @@ h1, h2, h3, h4, h5, h6 {
 
 .modal {
   background-color: var(--color-surface);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   width: 90%;
   max-width: 560px;
@@ -508,8 +583,12 @@ h1, h2, h3, h4, h5, h6 {
   animation: slide-up 0.2s ease;
 }
 
+.modal-lg {
+  max-width: 800px;
+}
+
 .modal-header {
-  padding: 20px 24px 16px;
+  padding: var(--space-5) var(--space-6) var(--space-4);
   border-bottom: 1px solid var(--color-border);
   display: flex;
   align-items: center;
@@ -517,14 +596,14 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .modal-body {
-  padding: 20px 24px;
+  padding: var(--space-5) var(--space-6);
 }
 
 .modal-footer {
-  padding: 16px 24px;
+  padding: var(--space-4) var(--space-6);
   border-top: 1px solid var(--color-border);
   display: flex;
-  gap: 10px;
+  gap: var(--space-3);
   justify-content: flex-end;
 }
 
@@ -1056,17 +1135,29 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ============================================================
-   Tablet Breakpoint — 769px to 1024px
-   Distinct from mobile (≤768px) and desktop (≥1025px).
-   Closer to desktop layout but with tighter margins,
-   responsive grid reflows, and touch-friendly sizing.
-   Source of truth: docs/DESIGN.md
+   Content Container Rule (Newdesign.md Section 6)
+   ============================================================ */
+.content-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 var(--space-8);
+}
+
+/* ============================================================
+   Tablet Breakpoint — 768px to 1199px (Newdesign.md Section 5)
    ============================================================ */
 
-@media (min-width: 769px) and (max-width: 1024px) {
-  /* Sidebar: narrower on tablet */
+@media (min-width: 768px) and (max-width: 1199px) {
   :root {
     --sidebar-width: 200px;
+    --text-h1: 22px;
+    --text-h2: 17px;
+    --text-body: 13.5px;
+    --text-caption: 12px;
+  }
+
+  .content-container {
+    padding: 0 var(--space-6);
   }
 
   .app-sidebar {
@@ -1078,79 +1169,69 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .app-content {
-    padding: 20px;
+    padding: var(--space-5);
   }
 
-  /* Page header: allow wrapping on narrower tablet widths */
   .page-header {
     flex-wrap: wrap;
-    gap: 10px;
+    gap: var(--space-3);
     align-items: flex-start;
   }
 
   .page-title {
-    font-size: 20px;
+    font-size: var(--text-h1);
   }
 
-  /* Grid forms: 3-col collapses to 2-col on tablet */
   .grid-form-3 {
     grid-template-columns: 1fr 1fr;
   }
 
-  /* Stats grid: floor at 200px per card so 3 can still fit */
   .stats-grid {
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 14px;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-4);
   }
 
   .stat-value {
     font-size: 22px;
   }
 
-  /* Card padding: slightly tighter on tablet */
   .card {
-    padding: 16px;
+    padding: var(--space-5);
   }
 
-  /* Tables: always horizontally scrollable on tablet */
   .table-scroll-wrap {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
 
-  /* Table cells: tighter padding on tablet */
   .data-table th,
   .table th {
-    padding: 10px 12px;
+    padding: var(--space-3);
   }
 
   .data-table td,
   .table td {
-    padding: 11px 12px;
+    padding: var(--space-3);
   }
 
-  /* Modal: full-width on narrow tablet */
   .modal {
     width: 95%;
     max-width: 600px;
   }
 
-  /* Sidebar nav text: slightly smaller to fit in 200px column */
   .nav-item {
     font-size: 13px;
-    padding: 8px 10px;
+    padding: var(--space-2) var(--space-3);
   }
 
-  /* Search bar: fluid on tablet */
   .search-bar {
     width: 100%;
     max-width: 280px;
   }
 
-  /* Wizard steps: wrap on tablet */
   .wizard-steps {
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .wizard-step {
@@ -1158,25 +1239,38 @@ h1, h2, h3, h4, h5, h6 {
     min-width: 140px;
   }
 
-  /* Tab list: allow wrapping if too many tabs */
   .tab-list {
     flex-wrap: wrap;
     gap: 0;
   }
 
   .tab-item {
-    padding: 8px 14px;
+    padding: var(--space-2) var(--space-3);
     font-size: 13px;
   }
 
-  /* Mobile-specific classes stay hidden on tablet (tablet uses desktop nav) */
   .mobile-only  { display: none !important; }
   .desktop-only { display: block !important; }
   .mobile-header   { display: none; }
   .mobile-back-bar { display: none; }
 }
 
-@media (max-width: 768px) {
+/* ============================================================
+   Mobile Breakpoint — < 768px (Newdesign.md Section 5)
+   ============================================================ */
+
+@media (max-width: 767px) {
+  :root {
+    --text-h1: 20px;
+    --text-h2: 16px;
+    --text-body: 13px;
+    --text-caption: 11.5px;
+  }
+
+  .content-container {
+    padding: 0 var(--space-4);
+  }
+
   .mobile-only { display: block !important; }
   .desktop-only { display: none !important; }
 
@@ -1185,12 +1279,35 @@ h1, h2, h3, h4, h5, h6 {
 
   .grid-form-2,
   .grid-form-3 { grid-template-columns: 1fr; }
+  .stats-grid { grid-template-columns: 1fr; gap: var(--space-3); }
+
   .app-sidebar { display: none; }
   .app-main { margin-left: 0; padding: 0; }
-  .app-content { padding: 16px; }
+  .app-content { padding: var(--space-4); }
 
-  /* Increase touch targets for mobile accessibility */
-  .btn { min-height: 42px; font-size: 13.5px; }
-  .form-input, select, textarea { font-size: 16px !important; } /* prevents iOS zoom on focus */
+  /* Mobile component specs per Newdesign.md Section 7 */
+  .btn {
+    height: 44px; /* touch target */
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--text-body);
+  }
+
+  .form-input, .form-select, .form-textarea {
+    height: 44px;
+    font-size: 16px !important; /* prevents iOS zoom */
+  }
+
+  .card {
+    padding: var(--space-4);
+  }
+
+  .modal {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 14px 14px 0 0;
+    position: fixed;
+    bottom: 0;
+    max-height: 85vh;
+  }
 }
 

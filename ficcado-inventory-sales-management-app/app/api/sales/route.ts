@@ -12,7 +12,7 @@ import { recordInventoryHistory } from '@/lib/inventoryHistory';
 import { recordSalesLog, formatPrice, formatStockLocation, groupItemLines, formatItemListWithSummary } from '@/lib/salesLogger';
 import { updateSearchIndex } from '@/lib/google/searchIndex';
 import { formatISTDateTime } from '@/lib/dateUtils';
-import { buildHeaderMap, getCellByHeader } from '@/lib/google/headerUtils';
+import { buildHeaderMap, getCellByHeader, formatRowFromHeaderMap } from '@/lib/google/headerUtils';
 
 export const dynamic = 'force-dynamic';
 
@@ -94,52 +94,61 @@ async function upsertCustomerInfo(params: {
   const { phone, name, address, email, invoiceNumber, adminName } = params;
   try {
     const ciRows = await readAllRows('customer_info');
+    const EXPECTED_CI_HEADERS = ['S.No', 'Customer Name', 'Phone Number', 'Address', 'Email ID', 'Total Orders Placed', 'Invoice Numbers', 'Created At', 'Created By', 'Updated At', 'Updated By'];
+    if (ciRows.length === 0 || (ciRows[0] && ciRows[0].length < EXPECTED_CI_HEADERS.length)) {
+      await updateRow('customer_info', 1, EXPECTED_CI_HEADERS).catch(() => {});
+    }
+
+    const headerMap = buildHeaderMap(ciRows[0] ?? []);
     const now = new Date().toISOString();
 
     // Find existing row by phone (skip header row)
     const existingIdx = ciRows.slice(1).findIndex(
-      (r) => (r[COL_CI.phoneNumber] ?? '').trim() === phone.trim()
+      (r) => getCellByHeader(r, headerMap, 'Phone Number').trim() === phone.trim()
     );
 
     if (existingIdx < 0) {
       // New customer — append row
-      const sno = String(ciRows.length); // 1-based, header is row 1
-      await appendRows('customer_info', [[
-        sno,
-        name,
-        phone,
-        address,
-        email,
-        '1',
-        invoiceNumber,
-        now,
-        adminName,
-        now,
-        adminName,
-      ]]);
+      const sno = String(Math.max(ciRows.length - 1, 0) + 1);
+      const newCustObj = {
+        'S.No':                sno,
+        'Customer Name':       name,
+        'Phone Number':        phone,
+        'Address':             address,
+        'Email ID':            email,
+        'Total Orders Placed': '1',
+        'Invoice Numbers':     invoiceNumber,
+        'Created At':          now,
+        'Created By':          adminName,
+        'Updated At':          now,
+        'Updated By':          adminName,
+      };
+      await appendRows('customer_info', [formatRowFromHeaderMap(newCustObj, EXPECTED_CI_HEADERS)]);
     } else {
-      // Existing customer — update
-      const rowIndex = existingIdx + 2; // +1 for header, +1 for 1-based
+      // Existing customer — update row
+      const rowIndex = existingIdx + 2;
       const existing = ciRows[existingIdx + 1];
-      const currentOrders = parseInt(existing[COL_CI.totalOrders] ?? '0', 10) || 0;
-      const existingInvoices = (existing[COL_CI.invoiceNumbers] ?? '').trim();
+      const currentOrders = parseInt(getCellByHeader(existing, headerMap, 'Total Orders Placed', '0'), 10) || 0;
+      const existingInvoices = getCellByHeader(existing, headerMap, 'Invoice Numbers').trim();
       const newInvoices = existingInvoices
         ? existingInvoices + ', ' + invoiceNumber
         : invoiceNumber;
 
-      await updateRow('customer_info', rowIndex, [
-        existing[COL_CI.sno],
-        existing[COL_CI.customerName] || name,
-        existing[COL_CI.phoneNumber],
-        existing[COL_CI.address] || address,
-        existing[COL_CI.emailId] || email,
-        String(currentOrders + 1),
-        newInvoices,
-        existing[COL_CI.createdAt] ?? now,
-        existing[COL_CI.createdBy] ?? adminName,
-        now,
-        adminName,
-      ]);
+      const updatedCustObj = {
+        'S.No':                getCellByHeader(existing, headerMap, 'S.No'),
+        'Customer Name':       getCellByHeader(existing, headerMap, 'Customer Name') || name,
+        'Phone Number':        getCellByHeader(existing, headerMap, 'Phone Number'),
+        'Address':             getCellByHeader(existing, headerMap, 'Address') || address,
+        'Email ID':            getCellByHeader(existing, headerMap, 'Email ID') || email,
+        'Total Orders Placed': String(currentOrders + 1),
+        'Invoice Numbers':     newInvoices,
+        'Created At':          getCellByHeader(existing, headerMap, 'Created At') || now,
+        'Created By':          getCellByHeader(existing, headerMap, 'Created By') || adminName,
+        'Updated At':          now,
+        'Updated By':          adminName,
+      };
+
+      await updateRow('customer_info', rowIndex, formatRowFromHeaderMap(updatedCustObj, EXPECTED_CI_HEADERS));
     }
   } catch {
     // customer_info module may not be configured yet — skip silently

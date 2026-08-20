@@ -95,12 +95,13 @@ export async function GET(request: Request) {
       }
     }
 
-    // 2. Aggregate Sales & COGS
-    let paidRevenue    = 0;
-    let unpaidDues     = 0;
-    let totalCogs      = 0;
-    let paidSalesCount = 0;
-    let totalSalesCount= 0;
+    // 2. Aggregate Sales & COGS & Discounts
+    let paidRevenue       = 0;
+    let unpaidDues        = 0;
+    let totalCogs         = 0;
+    let paidSalesCount    = 0;
+    let totalSalesCount   = 0;
+    let discountsProvided = 0;
     const itemBreakdownMap: { [key: string]: ItemBreakdown } = {};
 
     if (salesRows.length > 1) {
@@ -112,7 +113,16 @@ export async function GET(request: Request) {
         totalSalesCount++;
         const totalAmt   = parseFloat(getCellByHeader(r, sMap, 'Total Amount', '0')) || 0;
         const payStatus  = (getCellByHeader(r, sMap, 'Payment Status') || '').trim().toLowerCase();
+        const saleStatus = (getCellByHeader(r, sMap, 'Sale Status') || '').trim().toLowerCase();
         const isPaid     = payStatus === 'paid';
+        const isCompleted = saleStatus === 'purchase satisfied and order completed';
+
+        const discountStr = getCellByHeader(r, sMap, 'Discount', '0');
+        const discountAmt = parseFloat(discountStr.replace(/[^0-9.]/g, '')) || 0;
+
+        if (isCompleted) {
+          discountsProvided += discountAmt;
+        }
 
         if (!isPaid) {
           unpaidDues += totalAmt;
@@ -212,6 +222,7 @@ export async function GET(request: Request) {
         unpaidDues,
         totalSalesCount,
         paidSalesCount,
+        discountsProvided,
         cogs: totalCogs,
         grossProfit,
         grossMarginPct: Math.round(grossMarginPct * 10) / 10,

@@ -151,44 +151,68 @@ export default function ReconciliationPage() {
             </div>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Item Name</th>
-                  <th>Size Variant</th>
-                  <th>Main Inventory Total</th>
-                  <th>Warehouse Allocated Total</th>
-                  <th>Unallocated Balance</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((item, i) => (
-                  <tr key={i} style={item.mismatch ? { background: 'rgba(229,57,53,0.06)' } : {}}>
-                    <td style={{ fontWeight: 600 }}>{item.itemName}</td>
-                    <td><span className="badge badge-neutral">{item.size}</span></td>
-                    <td className="tabular-nums" style={{ fontWeight: 600 }}>{item.inventoryTotal} piece(s)</td>
-                    <td className="tabular-nums">{item.warehouseTotal} piece(s)</td>
-                    <td className="tabular-nums" style={{ fontWeight: 700 }}>
-                      {item.difference} piece(s)
-                    </td>
-                    <td>
-                      {item.mismatch ? (
-                        <span className="badge badge-error">
-                          ⚠ Mismatch (Exceeds main stock by {Math.abs(item.difference)} piece(s))
-                        </span>
-                      ) : (
-                        <span className="badge badge-success">
-                          ✓ Reconciled ({item.difference} unallocated)
-                        </span>
-                      )}
-                    </td>
+          <>
+            {/* Mobile View Card List */}
+            <div className="mobile-only mobile-card-list" style={{ padding: 12 }}>
+              {filtered.map((item, i) => (
+                <div key={i} className="mobile-data-card" style={item.mismatch ? { borderColor: 'var(--color-error)' } : undefined}>
+                  <div className="mobile-data-card-header">
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>{item.itemName} ({item.size})</span>
+                    <span className={`badge ${item.mismatch ? 'badge-error' : 'badge-success'}`}>
+                      {item.mismatch ? 'Mismatch' : 'Reconciled'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                    <span>Main Stock: <strong>{item.inventoryTotal} pcs</strong></span>
+                    <span>Warehouse: <strong>{item.warehouseTotal} pcs</strong></span>
+                  </div>
+                  <div style={{ fontSize: 12, color: item.difference < 0 ? 'var(--color-error)' : 'var(--color-success)', fontWeight: 600 }}>
+                    Unallocated Balance: {item.difference} piece(s)
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table View */}
+            <div className="desktop-only" style={{ overflowX: 'auto' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Item Name</th>
+                    <th>Size Variant</th>
+                    <th>Main Inventory Total</th>
+                    <th>Warehouse Allocated Total</th>
+                    <th>Unallocated Balance</th>
+                    <th>Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {filtered.map((item, i) => (
+                    <tr key={i} style={item.mismatch ? { background: 'rgba(229,57,53,0.06)' } : {}}>
+                      <td style={{ fontWeight: 600 }}>{item.itemName}</td>
+                      <td><span className="badge badge-neutral">{item.size}</span></td>
+                      <td className="tabular-nums" style={{ fontWeight: 600 }}>{item.inventoryTotal} piece(s)</td>
+                      <td className="tabular-nums">{item.warehouseTotal} piece(s)</td>
+                      <td className="tabular-nums" style={{ fontWeight: 700 }}>
+                        {item.difference} piece(s)
+                      </td>
+                      <td>
+                        {item.mismatch ? (
+                          <span className="badge badge-error">
+                            ⚠ Mismatch (Exceeds main stock by {Math.abs(item.difference)} piece(s))
+                          </span>
+                        ) : (
+                          <span className="badge badge-success">
+                            ✓ Reconciled ({item.difference} unallocated)
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </div>

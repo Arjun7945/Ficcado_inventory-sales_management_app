@@ -12,8 +12,8 @@
  */
 
 import { getAuthSession } from '@/lib/auth';
-import { readAllRows, appendRows } from '@/lib/google/moduleSheet';
-import { buildHeaderMap, getCellByHeader } from '@/lib/google/headerUtils';
+import { readAllRows, appendRows, updateRow } from '@/lib/google/moduleSheet';
+import { buildHeaderMap, getCellByHeader, formatRowFromHeaderMap } from '@/lib/google/headerUtils';
 import { getAppMeta, decryptValue } from '@/lib/google/appMeta';
 import { logActivity } from '@/lib/activityLogger';
 import { renderEmailMarkdown } from '@/lib/emailMarkdown';
@@ -279,6 +279,11 @@ export async function POST(request: Request) {
 
     // ── 6. Log Announcement Record & Activity ────────────────────────────────
     const annRows = await readAllRows('announcements').catch(() => []);
+    const EXPECTED_ANN_HEADERS = ['S.No', 'Subject', 'Target Audience', 'Recipients Count', 'Sent Count', 'Failed Count', 'Created At', 'Created By'];
+    if (annRows.length === 0 || (annRows[0] && annRows[0].length < EXPECTED_ANN_HEADERS.length)) {
+      await updateRow('announcements', 1, EXPECTED_ANN_HEADERS).catch(() => {});
+    }
+
     const sno     = String(Math.max(annRows.length - 1, 0) + 1);
     const now     = new Date().toISOString();
 
@@ -286,16 +291,17 @@ export async function POST(request: Request) {
       ? ` (Attachments: ${parsedAttachments.map((a) => a.filename).join(', ')})`
       : '';
 
-    const newLog = [
-      sno,
-      subject.trim() + attachmentSummary,
-      audienceLabel,
-      String(targetList.length),
-      String(sentCount),
-      String(failedCount),
-      now,
-      admin.name,
-    ];
+    const annObj = {
+      'S.No':             sno,
+      'Subject':          subject.trim() + attachmentSummary,
+      'Target Audience':  audienceLabel,
+      'Recipients Count': String(targetList.length),
+      'Sent Count':       String(sentCount),
+      'Failed Count':     String(failedCount),
+      'Created At':       now,
+      'Created By':       admin.name,
+    };
+    const newLog = formatRowFromHeaderMap(annObj, EXPECTED_ANN_HEADERS);
     await appendRows('announcements', [newLog]).catch(() => {});
 
     await logActivity({

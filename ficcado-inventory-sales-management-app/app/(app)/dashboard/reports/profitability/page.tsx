@@ -16,6 +16,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
+import StatusBadge from '@/components/StatusBadge';
 import { formatISTDateTime } from '@/lib/dateUtils';
 
 interface ItemBreakdown {
@@ -31,6 +32,7 @@ interface ReportSummary {
   unpaidDues:           number;
   totalSalesCount:      number;
   paidSalesCount:       number;
+  discountsProvided?:   number;
   cogs:                 number;
   grossProfit:          number;
   grossMarginPct:       number;
@@ -306,29 +308,43 @@ export default function ProfitabilityReportPage() {
             </div>
           </div>
 
-          {/* COGS */}
-          <div className="card" style={{ padding: '14px 16px' }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-ink-muted)', textTransform: 'uppercase' }}>
-              Cost of Goods Sold (COGS)
+          {/* Merged COGS & Gross Profit Box */}
+          <div className="card" style={{ padding: '14px 16px', background: 'var(--color-bg-subtle)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-ink-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                COGS & Gross Profit
+              </div>
+              <span className="badge badge-info" style={{ fontSize: 10 }}>Margin: {summary?.grossMarginPct}%</span>
             </div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-error)', marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
-              ₹{(summary?.cogs ?? 0).toLocaleString('en-IN')}
+            <div style={{ display: 'flex', gap: 16, alignItems: 'baseline', flexWrap: 'wrap', marginTop: 4 }}>
+              <div>
+                <span style={{ fontSize: 10, color: 'var(--color-ink-muted)', textTransform: 'uppercase', display: 'block' }}>COGS</span>
+                <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-error)', fontVariantNumeric: 'tabular-nums' }}>
+                  ₹{(summary?.cogs ?? 0).toLocaleString('en-IN')}
+                </span>
+              </div>
+              <div style={{ borderLeft: '1px solid var(--color-border-subtle)', paddingLeft: 16 }}>
+                <span style={{ fontSize: 10, color: 'var(--color-ink-muted)', textTransform: 'uppercase', display: 'block' }}>Gross Profit</span>
+                <span style={{ fontSize: 18, fontWeight: 700, color: (summary?.grossProfit ?? 0) >= 0 ? 'var(--color-success)' : 'var(--color-error)', fontVariantNumeric: 'tabular-nums' }}>
+                  ₹{(summary?.grossProfit ?? 0).toLocaleString('en-IN')}
+                </span>
+              </div>
             </div>
-            <div style={{ fontSize: 11.5, color: 'var(--color-ink-muted)', marginTop: 2 }}>
-              Derived from Cost Price
+            <div style={{ fontSize: 11, color: 'var(--color-ink-muted)', marginTop: 4 }}>
+              Gross Profit = Net Revenue − COGS
             </div>
           </div>
 
-          {/* Gross Profit */}
+          {/* Discounts Provided */}
           <div className="card" style={{ padding: '14px 16px' }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-ink-muted)', textTransform: 'uppercase' }}>
-              Gross Profit
+              Discounts Provided
             </div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: (summary?.grossProfit ?? 0) >= 0 ? 'var(--color-success)' : 'var(--color-error)', marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
-              ₹{(summary?.grossProfit ?? 0).toLocaleString('en-IN')}
+            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--color-warning)', marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
+              ₹{(summary?.discountsProvided ?? 0).toLocaleString('en-IN')}
             </div>
             <div style={{ fontSize: 11.5, color: 'var(--color-ink-muted)', marginTop: 2 }}>
-              Gross Margin: <strong>{summary?.grossMarginPct}%</strong>
+              Given on completed sales
             </div>
           </div>
 
@@ -546,16 +562,7 @@ export default function ProfitabilityReportPage() {
                           </td>
                           <td style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>{formatISTDateTime(t.paymentDate)}</td>
                           <td>
-                            <span
-                              className="badge"
-                              style={{
-                                fontWeight: 700,
-                                background: t.paymentStatus === 'Paid' ? 'rgba(47,125,79,0.1)' : t.paymentStatus === 'Refunded' ? 'rgba(176,64,58,0.1)' : 'rgba(184,134,43,0.1)',
-                                color: t.paymentStatus === 'Paid' ? 'var(--color-success)' : t.paymentStatus === 'Refunded' ? 'var(--color-error)' : 'var(--color-warning)',
-                              }}
-                            >
-                              {t.paymentStatus}
-                            </span>
+                            <StatusBadge status={t.paymentStatus} />
                           </td>
                           <td style={{ textAlign: 'center' }}>
                             <button

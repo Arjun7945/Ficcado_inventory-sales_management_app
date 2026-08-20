@@ -245,8 +245,8 @@ export default function DashboardPage() {
 
       {/* ── Stats rows ───────────────────────────────────────────────────────── */}
       {viewMode === 'today' ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginBottom: 28 }}>
-          <StatCard label="Revenue Today (Paid)" value={`₹${(stats?.todayRevenue ?? 0).toLocaleString('en-IN')}`} accent="primary" loading={loading} />
+        <div className="stats-grid">
+          <StatCard label="Today's Revenue (Paid)" value={`₹${(stats?.todayRevenue ?? 0).toLocaleString('en-IN')}`} accent="primary" loading={loading} />
           <StatCard label="Unpaid Sale Today"    value={`₹${(stats?.todayUnpaidRevenue ?? 0).toLocaleString('en-IN')}`} subtext={`${stats?.todayUnpaidSales ?? 0} unpaid orders`} accent={stats?.todayUnpaidSales ? 'warning' : 'neutral'} loading={loading} />
           <StatCard label="Sales Count Today"    value={String(stats?.todaySales ?? 0)}     accent="neutral" loading={loading} />
           <StatCard label="Total Items Sold"     value={String(stats?.todayItemsSold ?? 0)} accent="neutral" loading={loading} />
@@ -255,7 +255,7 @@ export default function DashboardPage() {
           <StatCard label="Pending Return/Refund" value={String(stats?.pendingRefunds ?? 0)} accent={stats?.pendingRefunds ? 'error' : 'neutral'} loading={loading} />
         </div>
       ) : viewMode === 'overall' ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginBottom: 28 }}>
+        <div className="stats-grid">
           <StatCard label="Total Revenue (Paid)" value={`₹${(stats?.overallRevenue ?? 0).toLocaleString('en-IN')}`} accent="primary" loading={loading} />
           <StatCard label="Total Unpaid Sale"   value={`₹${(stats?.overallUnpaidRevenue ?? 0).toLocaleString('en-IN')}`} subtext={`${stats?.overallUnpaidSales ?? 0} unpaid orders`} accent={stats?.overallUnpaidSales ? 'warning' : 'neutral'} loading={loading} />
           <StatCard label="Total Sales Made"          value={String(stats?.overallSales ?? 0)} accent="neutral" loading={loading} />
@@ -264,7 +264,7 @@ export default function DashboardPage() {
         </div>
       ) : (
         /* Monthly view */
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginBottom: 28 }}>
+        <div className="stats-grid">
           {availableMonths.length === 0 ? (
             <div style={{ gridColumn: '1/-1', padding: '24px 0', color: 'var(--color-ink-muted)', fontSize: 14, textAlign: 'center' }}>
               No sales data recorded yet — nothing to show for Monthly view.

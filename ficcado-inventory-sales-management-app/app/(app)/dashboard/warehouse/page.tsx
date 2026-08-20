@@ -12,6 +12,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
+import StatusBadge from '@/components/StatusBadge';
 
 interface WarehouseAllocationRow {
   rowIndex: number;
@@ -366,9 +367,9 @@ export default function WarehousePage() {
                       📍 {box.location}
                     </div>
                   </div>
-                  <span className={`badge ${box.isAdmin ? 'badge-info' : 'badge-neutral'}`} style={{ fontSize: 11 }}>
+                  <StatusBadge status={box.isAdmin ? 'Admin' : 'Default'} variant={box.isAdmin ? 'info' : 'neutral'}>
                     {box.isAdmin ? 'Admin Handler' : 'Custom Handler'}
-                  </span>
+                  </StatusBadge>
                 </div>
 
                 {/* Summary Metrics */}

@@ -16,6 +16,7 @@ import Link from 'next/link';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
 import MobileBackButton from '@/components/MobileBackButton';
+import StatusBadge from '@/components/StatusBadge';
 import { formatISTDateTime } from '@/lib/dateUtils';
 
 interface Sale {
@@ -39,21 +40,6 @@ interface Sale {
   discount:             number;
   customerEmail:        string;
 }
-
-const PAYMENT_BADGE: Record<string, string> = {
-  'Paid':     'badge-success',
-  'Not Paid': 'badge-error',
-  'Credit':   'badge-warning',
-};
-
-const STATUS_BADGE: Record<string, string> = {
-  'Purchase Satisfied':                         'badge-success',
-  'Purchase Satisfied & Order Completed':       'badge-success',
-  'Not Provided / Order Only Placed':           'badge-neutral',
-  'Payment Pending':                            'badge-warning',
-  'Return & Refund':                            'badge-error',
-  'Replacement Completed & Purchase Satisfied': 'badge-info',
-};
 
 const NO_EMAIL_MSG = 'No email on file for this customer — add one via phone lookup or edit the customer record.';
 
@@ -201,9 +187,7 @@ export default function SalesPage() {
                   <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--color-brand-primary)', fontSize: 14 }}>
                     {sale.invoiceNumber}
                   </span>
-                  <span className={`badge ${PAYMENT_BADGE[sale.paymentStatus] ?? 'badge-neutral'}`}>
-                    {sale.paymentStatus}
-                  </span>
+                  <StatusBadge status={sale.paymentStatus} />
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -229,9 +213,7 @@ export default function SalesPage() {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-                  <span className={`badge ${STATUS_BADGE[sale.saleStatus] ?? 'badge-neutral'}`} style={{ fontSize: 11 }}>
-                    {sale.saleStatus}
-                  </span>
+                  <StatusBadge status={sale.saleStatus} />
                   <span style={{ fontSize: 11, color: 'var(--color-ink-muted)' }}>
                     {formatISTDateTime(sale.createdAt)}
                   </span>
@@ -356,14 +338,10 @@ export default function SalesPage() {
                         ₹{parseFloat(sale.totalAmount || '0').toLocaleString('en-IN')}
                       </td>
                       <td>
-                        <span className={`badge ${PAYMENT_BADGE[sale.paymentStatus] ?? 'badge-neutral'}`}>
-                          {sale.paymentStatus}
-                        </span>
+                        <StatusBadge status={sale.paymentStatus} />
                       </td>
                       <td>
-                        <span className={`badge ${STATUS_BADGE[sale.saleStatus] ?? 'badge-neutral'}`}>
-                          {sale.saleStatus}
-                        </span>
+                        <StatusBadge status={sale.saleStatus} />
                       </td>
                       <td>
                         {sale.saleClosedBy ? (

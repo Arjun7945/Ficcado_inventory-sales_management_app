@@ -4,11 +4,12 @@
  * Writes a human-readable activity log entry to the 'activity_log' module sheet.
  * Called by every Create/Update/Delete API handler.
  *
- * Log entry format (per spec Section 7.2 and Part 2 Section 2.8):
- * Transaction-aware, human-readable entries with exact item, quantity, handler, and invoice details.
+ * Header-mapped & Auto-Header synced formatting.
  */
 
-import { appendRows } from './google/moduleSheet';
+import { appendRows, readAllRows, updateRow } from './google/moduleSheet';
+import { formatRowFromHeaderMap } from './google/headerUtils';
+import { MODULE_REGISTRY } from './google/moduleRegistry';
 
 export type ActivityAction = 'created' | 'updated' | 'deleted';
 
@@ -21,9 +22,8 @@ export interface ActivityLogEntry {
   customMessage?: string; // Optional detailed transaction-aware sentence
 }
 
-/**
- * Format a date as "DD/MM/YYYY at H:MM AM/PM" matching the spec example.
- */
+const EXPECTED_HEADERS = MODULE_REGISTRY.activity_log.headers;
+
 function formatTimestamp(date: Date): string {
   const day   = String(date.getDate()).padStart(2, '0');
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -37,9 +37,6 @@ function formatTimestamp(date: Date): string {
   return `${day}/${month}/${year} at ${hours}:${mins} ${ampm}`;
 }
 
-/**
- * Build the human-readable activity log message.
- */
 export function buildActivityMessage(entry: ActivityLogEntry, date: Date): string {
   if (entry.customMessage) {
     return entry.customMessage;
@@ -51,25 +48,31 @@ export function buildActivityMessage(entry: ActivityLogEntry, date: Date): strin
   );
 }
 
-/**
- * Append a log entry to the Activity Log sheet.
- * Silently catches errors — activity logging must never block the primary action.
- */
 export async function logActivity(entry: ActivityLogEntry): Promise<void> {
   try {
     const now = new Date();
     const message = buildActivityMessage(entry, now);
 
-    await appendRows('activity_log', [[
-      '',                   // S.No
-      entry.adminName,
-      entry.action,
-      entry.module,
-      entry.moduleKey,
-      entry.recordId,
-      now.toISOString(),
-      message,
-    ]]);
+    const rows = await readAllRows('activity_log').catch(() => []);
+    if (rows.length === 0 || (rows[0] && rows[0].length < EXPECTED_HEADERS.length)) {
+      await updateRow('activity_log', 1, EXPECTED_HEADERS).catch(() => {});
+    }
+
+    const sno = String(Math.max(rows.length - 1, 0) + 1);
+
+    const logObj = {
+      'S.No':       sno,
+      'Admin Name': entry.adminName,
+      'Action':     entry.action,
+      'Module':     entry.module,
+      'Module Key': entry.moduleKey,
+      'Record ID':  entry.recordId,
+      'Timestamp':  now.toISOString(),
+      'Message':    message,
+    };
+
+    const newRow = formatRowFromHeaderMap(logObj, EXPECTED_HEADERS);
+    await appendRows('activity_log', [newRow]);
   } catch (err) {
     console.error('[ActivityLogger] Failed to write activity log entry:', entry, err);
   }

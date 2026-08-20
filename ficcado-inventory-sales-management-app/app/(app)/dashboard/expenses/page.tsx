@@ -62,6 +62,10 @@ export default function ExpensesPage() {
   const [submitting, setSubmitting]     = useState(false);
   const [formError, setFormError]       = useState<string | null>(null);
 
+  // Search & Filter
+  const [search, setSearch]                 = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+
   // Delete confirm
   const [deletingEntry, setDeletingEntry] = useState<ExpenseEntry | null>(null);
   const [deleting, setDeleting]           = useState(false);
@@ -159,6 +163,18 @@ export default function ExpensesPage() {
   const myTotal        = expenses.filter((e) => e.createdBy === currentAdmin)
                                   .reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
 
+  const filteredExpenses = expenses.filter((e) => {
+    const q = search.trim().toLowerCase();
+    const matchSearch = !q ||
+      (e.description || '').toLowerCase().includes(q) ||
+      (e.adminName || '').toLowerCase().includes(q) ||
+      (e.createdBy || '').toLowerCase().includes(q);
+    const matchCat = !categoryFilter ||
+      (e.category || '').toLowerCase() === categoryFilter.toLowerCase() ||
+      (e.displayCategory || '').toLowerCase() === categoryFilter.toLowerCase();
+    return matchSearch && matchCat;
+  });
+
   return (
     <div>
       <div className="page-header">
@@ -197,72 +213,126 @@ export default function ExpensesPage() {
         </div>
       </div>
 
+      {/* Search & Filter Bar */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div className="search-bar" style={{ flex: 1, minWidth: 220 }}>
+          <span style={{ color: 'var(--color-ink-muted)' }}>⌕</span>
+          <input
+            type="text"
+            className="form-input"
+            placeholder="Search by description or admin name…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <select
+          className="form-select"
+          style={{ width: 220 }}
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+        >
+          <option value="">All Categories</option>
+          {Array.from(new Set([...EXPENSE_CATEGORIES, ...expenses.map(e => e.displayCategory).filter(Boolean)])).map((cat) => (
+            <option key={cat} value={cat}>{cat}</option>
+          ))}
+        </select>
+      </div>
+
       {/* Expense Table */}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: 48, textAlign: 'center' }}><LoadingGecko label="Loading expenses…" /></div>
-        ) : expenses.length === 0 ? (
+        ) : filteredExpenses.length === 0 ? (
           <div className="empty-state">
             <div style={{ fontSize: 28 }}>💳</div>
-            <div className="empty-state-title">No expenses logged yet</div>
-            <div style={{ fontSize: 13, color: 'var(--color-ink-muted)' }}>Click &quot;+ Log Expense&quot; to record a business expense.</div>
+            <div className="empty-state-title">No matching expenses found</div>
+            <div style={{ fontSize: 13, color: 'var(--color-ink-muted)' }}>
+              {search || categoryFilter ? 'Try clearing your search or category filter.' : 'Click "+ Log Expense" to record a business expense.'}
+            </div>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Admin</th>
-                  <th>Category</th>
-                  <th>Description</th>
-                  <th style={{ textAlign: 'right' }}>Amount</th>
-                  <th>Date of Expense</th>
-                  <th>Logged At</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {expenses.map((e) => (
-                  <tr key={e.sno}>
-                    <td style={{ color: 'var(--color-ink-muted)', fontSize: 12 }}>{e.sno}</td>
-                    <td>
-                      <span className={`badge ${e.adminName === currentAdmin ? 'badge-primary' : 'badge-neutral'}`}>
-                        {e.adminName}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="badge badge-neutral">{e.displayCategory || e.category}</span>
-                    </td>
-                    <td style={{ maxWidth: 240, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {e.description}
-                    </td>
-                    <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--color-brand-primary)', fontVariantNumeric: 'tabular-nums' }}>
+          <>
+            {/* Mobile View Card List */}
+            <div className="mobile-only mobile-card-list" style={{ padding: 12 }}>
+              {filteredExpenses.map((e) => (
+                <div key={e.sno} className="mobile-data-card">
+                  <div className="mobile-data-card-header">
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>{e.displayCategory || e.category}</span>
+                    <span className="tabular-nums" style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-brand-primary)' }}>
                       ₹{parseFloat(e.amount || '0').toLocaleString('en-IN')}
-                    </td>
-                    <td style={{ fontSize: 12.5 }}>{e.dateOfExpense}</td>
-                    <td style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>{formatISTDateTime(e.createdAt)}</td>
-                    <td>
-                      {e.createdBy === currentAdmin ? (
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button className="btn btn-ghost btn-sm" onClick={() => openEdit(e)}>Edit</button>
-                          <button
-                            className="btn btn-sm"
-                            style={{ color: 'var(--color-error)', border: '1px solid var(--color-error)', background: 'transparent' }}
-                            onClick={() => setDeletingEntry(e)}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      ) : (
-                        <span style={{ fontSize: 11.5, color: 'var(--color-ink-muted)' }}>View only</span>
-                      )}
-                    </td>
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--color-ink)' }}>{e.description}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--color-ink-muted)' }}>
+                    <span>Admin: {e.adminName}</span>
+                    <span>Date: {e.dateOfExpense}</span>
+                  </div>
+                  {e.createdBy === currentAdmin && (
+                    <div className="mobile-data-card-actions">
+                      <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => openEdit(e)}>Edit</button>
+                      <button className="btn btn-danger btn-sm" onClick={() => setDeletingEntry(e)}>Delete</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table View */}
+            <div className="desktop-only" style={{ overflowX: 'auto' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Admin</th>
+                    <th>Category</th>
+                    <th>Description</th>
+                    <th style={{ textAlign: 'right' }}>Amount</th>
+                    <th>Date of Expense</th>
+                    <th>Logged At</th>
+                    <th>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {filteredExpenses.map((e) => (
+                    <tr key={e.sno}>
+                      <td style={{ color: 'var(--color-ink-muted)', fontSize: 12 }}>{e.sno}</td>
+                      <td>
+                        <span className="badge badge-info">
+                          {e.adminName}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="badge badge-neutral">{e.displayCategory || e.category}</span>
+                      </td>
+                      <td style={{ maxWidth: 240, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {e.description}
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--color-brand-primary)', fontVariantNumeric: 'tabular-nums' }}>
+                        ₹{parseFloat(e.amount || '0').toLocaleString('en-IN')}
+                      </td>
+                      <td style={{ fontSize: 12.5 }}>{e.dateOfExpense}</td>
+                      <td style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>{formatISTDateTime(e.createdAt)}</td>
+                      <td>
+                        {e.createdBy === currentAdmin ? (
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button className="btn btn-ghost btn-sm" onClick={() => openEdit(e)}>Edit</button>
+                            <button
+                              className="btn btn-danger btn-sm"
+                              onClick={() => setDeletingEntry(e)}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: 11, color: 'var(--color-ink-muted)' }}>Read-only</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 

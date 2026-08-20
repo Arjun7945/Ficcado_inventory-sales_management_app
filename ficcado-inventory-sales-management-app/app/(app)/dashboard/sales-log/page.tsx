@@ -14,6 +14,7 @@ import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage from '@/components/ErrorMessage';
 import MobileBackButton from '@/components/MobileBackButton';
 import { formatISTDateTime, formatISTTextTimestamps } from '@/lib/dateUtils';
+import StatusBadge from '@/components/StatusBadge';
 
 interface SalesLogItem {
   sno: string;
@@ -248,9 +249,7 @@ export default function SalesLogPage() {
                           {formatISTDateTime(log.createdAt)}
                         </td>
                         <td>
-                          <span className={`badge ${moduleBadgeColor}`} style={{ fontSize: 11 }}>
-                            {log.module}
-                          </span>
+                          <StatusBadge status={log.module} />
                         </td>
                         <td>
                           <strong style={{ fontSize: 12 }}>{log.operation}</strong>

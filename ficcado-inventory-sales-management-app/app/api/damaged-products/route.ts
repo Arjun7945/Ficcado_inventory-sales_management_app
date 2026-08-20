@@ -1,32 +1,22 @@
 /**
  * app/api/damaged-products/route.ts
  *
- * GET  /api/damaged-products — list all damaged product records
- * POST /api/damaged-products — add a manual damaged product entry
+ * GET  /api/damaged-products — list all damaged product records (header-mapped)
+ * POST /api/damaged-products — add a manual damaged product entry (header-mapped)
  */
 
 import { requireAuth } from '@/lib/auth';
-import { readAllRows, appendRows } from '@/lib/google/moduleSheet';
+import { readAllRows, appendRows, updateRow } from '@/lib/google/moduleSheet';
+import { buildHeaderMap, getCellByHeader, formatRowFromHeaderMap } from '@/lib/google/headerUtils';
 import { validate, DamagedProductSchema } from '@/lib/validation';
 import { logActivity } from '@/lib/activityLogger';
 import { recordInventoryHistory } from '@/lib/inventoryHistory';
 import { recordSalesLog, formatItemListWithSummary } from '@/lib/salesLogger';
+import { MODULE_REGISTRY } from '@/lib/google/moduleRegistry';
 
 export const dynamic = 'force-dynamic';
 
-const COL = {
-  sno:           0,
-  invoiceNumber: 1,
-  itemName:      2,
-  size:          3,
-  quantity:      4,
-  customerName:  5,
-  reasonNotes:   6,
-  createdAt:     7,
-  createdBy:     8,
-  updatedAt:     9,
-  updatedBy:     10,
-};
+const EXPECTED_HEADERS = MODULE_REGISTRY.damaged_products.headers;
 
 export async function GET() {
   try { await requireAuth(); }
@@ -34,19 +24,29 @@ export async function GET() {
 
   try {
     const rows = await readAllRows('damaged_products');
+    if (rows.length === 0) {
+      await updateRow('damaged_products', 1, EXPECTED_HEADERS).catch(() => {});
+      return Response.json({ damagedProducts: [] });
+    }
+
+    if (rows[0] && rows[0].length < EXPECTED_HEADERS.length) {
+      await updateRow('damaged_products', 1, EXPECTED_HEADERS).catch(() => {});
+    }
+
+    const headerMap = buildHeaderMap(rows[0]);
     const damagedProducts = rows.slice(1).map((row, i) => ({
       rowIndex:      i + 2,
-      sno:           row[COL.sno]           ?? '',
-      invoiceNumber: row[COL.invoiceNumber] ?? '',
-      itemName:      row[COL.itemName]      ?? '',
-      size:          row[COL.size]          ?? '',
-      quantity:      parseInt(row[COL.quantity] ?? '0', 10) || 0,
-      customerName:  row[COL.customerName]  ?? '',
-      reasonNotes:   row[COL.reasonNotes]   ?? '',
-      createdAt:     row[COL.createdAt]     ?? '',
-      createdBy:     row[COL.createdBy]     ?? '',
-      updatedAt:     row[COL.updatedAt]     ?? '',
-      updatedBy:     row[COL.updatedBy]     ?? '',
+      sno:           getCellByHeader(row, headerMap, 'S.No') || String(i + 1),
+      invoiceNumber: getCellByHeader(row, headerMap, 'Invoice Number'),
+      itemName:      getCellByHeader(row, headerMap, 'Item Name'),
+      size:          getCellByHeader(row, headerMap, 'Size'),
+      quantity:      parseInt(getCellByHeader(row, headerMap, 'Quantity', '0'), 10) || 0,
+      customerName:  getCellByHeader(row, headerMap, 'Customer Name'),
+      reasonNotes:   getCellByHeader(row, headerMap, 'Reason/Notes'),
+      createdAt:     getCellByHeader(row, headerMap, 'Created At'),
+      createdBy:     getCellByHeader(row, headerMap, 'Created By'),
+      updatedAt:     getCellByHeader(row, headerMap, 'Updated At'),
+      updatedBy:     getCellByHeader(row, headerMap, 'Updated By'),
     })).filter((d) => d.itemName);
 
     return Response.json({ damagedProducts: damagedProducts.reverse() });
@@ -68,22 +68,29 @@ export async function POST(request: Request) {
 
     const { invoiceNumber, itemName, size, quantity, customerName, reasonNotes } = data!;
     const rows = await readAllRows('damaged_products');
-    const sno = String(rows.length);
+    if (rows.length === 0 || (rows[0] && rows[0].length < EXPECTED_HEADERS.length)) {
+      await updateRow('damaged_products', 1, EXPECTED_HEADERS).catch(() => {});
+    }
+
+    const sno = String(Math.max(rows.length - 1, 0) + 1);
     const now = new Date().toISOString();
 
-    await appendRows('damaged_products', [[
-      sno,
-      invoiceNumber ?? '',
-      itemName,
-      size,
-      String(quantity),
-      customerName ?? '',
-      reasonNotes ?? 'Manual entry by admin',
-      now,
-      admin.name,
-      now,
-      admin.name,
-    ]]);
+    const damagedObj = {
+      'S.No':           sno,
+      'Invoice Number': invoiceNumber ?? '',
+      'Item Name':      itemName,
+      'Size':           size,
+      'Quantity':       String(quantity),
+      'Customer Name':  customerName ?? '',
+      'Reason/Notes':   reasonNotes ?? 'Manual entry by admin',
+      'Created At':     now,
+      'Created By':     admin.name,
+      'Updated At':     now,
+      'Updated By':     admin.name,
+    };
+
+    const newRow = formatRowFromHeaderMap(damagedObj, EXPECTED_HEADERS);
+    await appendRows('damaged_products', [newRow]);
 
     // Record Damaged Disposal audit trail entry
     await recordInventoryHistory({
@@ -98,7 +105,6 @@ export async function POST(request: Request) {
       notes: reasonNotes || 'Manual damaged product entry',
     });
 
-    const logMsg = `${admin.name} logged ${quantity} piece(s) of ${itemName} (${size}) as damaged${invoiceNumber ? ` from invoice ${invoiceNumber}` : ''}.`;
     await logActivity({
       adminName: admin.name,
       action: 'created',
@@ -118,9 +124,9 @@ export async function POST(request: Request) {
       adminName: admin.name,
     });
 
-    return Response.json({ success: true, message: logMsg }, { status: 201 });
+    return Response.json({ success: true, message: 'Damaged product recorded.' }, { status: 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    return Response.json({ error: "Couldn't create damaged product record.", detail: message }, { status: 500 });
+    return Response.json({ error: "Couldn't record damaged product.", detail: message }, { status: 500 });
   }
 }

@@ -71,6 +71,7 @@ This project has repeatedly established a rule of **one shared implementation pe
 - **One** Sheet Configuration SDK (`getModuleSheet(moduleKey)`-style resolver), used by every module — no direct/hardcoded sheet reads anywhere else.
 - **One** loading component (`<LoadingGecko />`), one shared validation layer, and one shared error-messaging component, used by every form and every async action across the entire app, including every feature added in Parts 2 through 9.
 - **One** Activity Log/Sales Log writer per event type, not separate ad-hoc logging logic scattered per module.
+- **One** shared header-mapped `Refund Amount` reader/parser across Returns & Refunds list view, detail view, invoices, Sales Log, Dashboard, and Payment Transactions ledger — verifying position-independent header lookups and safe numeric cleaning so `₹0` display bugs never resurface.
 
 If any of these turn out to have a second, slightly different implementation somewhere, that's exactly the kind of "mistake" the client asked this audit to catch — consolidate into the one correct version and remove the duplicate.
 

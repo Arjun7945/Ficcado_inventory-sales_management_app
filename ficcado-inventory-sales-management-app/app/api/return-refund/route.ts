@@ -23,13 +23,24 @@ export async function GET() {
     if (rows.length === 0) return Response.json({ records: [] });
 
     const headerMap = buildHeaderMap(rows[0]);
-    const records = rows.slice(1).map((row, i) => ({
-      rowIndex:           i + 2,
-      invoiceNumber:      getCellByHeader(row, headerMap, 'Invoice Number'),
-      verificationStatus: getCellByHeader(row, headerMap, 'Item Verification Status'),
-      refundStatus:       getCellByHeader(row, headerMap, 'Refund Status'),
-      refundAmount:       getCellByHeader(row, headerMap, 'Refund Amount'),
-      refundCompletedAt:  getCellByHeader(row, headerMap, 'Refund Completed Date & Time'),
+    const records = rows.slice(1).map((row, i) => {
+      const rawRef = getCellByHeader(row, headerMap, 'Refund Amount');
+      const priceCharged = getCellByHeader(row, headerMap, 'Price Charged (Returned Items)');
+      const refNum = parseFloat(rawRef.replace(/[^0-9.]/g, '')) || 0;
+      let effectiveRefund = rawRef;
+      if (refNum === 0 && priceCharged) {
+        const parts = priceCharged.split(',').map((p) => parseFloat(p.replace(/[^0-9.]/g, '')) || 0);
+        const sum = parts.reduce((a, b) => a + b, 0);
+        if (sum > 0) effectiveRefund = String(sum);
+      }
+
+      return {
+        rowIndex:           i + 2,
+        invoiceNumber:      getCellByHeader(row, headerMap, 'Invoice Number'),
+        verificationStatus: getCellByHeader(row, headerMap, 'Item Verification Status'),
+        refundStatus:       getCellByHeader(row, headerMap, 'Refund Status'),
+        refundAmount:       effectiveRefund || '0',
+        refundCompletedAt:  getCellByHeader(row, headerMap, 'Refund Completed Date & Time'),
       transactionId:      getCellByHeader(row, headerMap, 'Transaction ID'),
       modeOfRefund:       getCellByHeader(row, headerMap, 'Mode of Refund'),
       disposition:        getCellByHeader(row, headerMap, 'Disposition of Returned Items'),
@@ -49,7 +60,8 @@ export async function GET() {
       updatedAt:          getCellByHeader(row, headerMap, 'Updated At'),
       updatedBy:          getCellByHeader(row, headerMap, 'Updated By'),
       version:            getCellByHeader(row, headerMap, 'Version', '1'),
-    })).filter((r) => r.invoiceNumber);
+      };
+    }).filter((r) => r.invoiceNumber);
 
     return Response.json({ records: records.reverse() });
   } catch (err) {

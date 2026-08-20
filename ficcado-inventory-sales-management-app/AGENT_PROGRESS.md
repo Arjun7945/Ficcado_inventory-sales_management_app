@@ -3,6 +3,24 @@
 ## 2026-08-05 - Full Spec Audit  
 Gaps identified and implementation in progress. 
 
+## 2026-08-20 - NEWDESIGN.MD MIGRATION COMPLETE
+100% UI Compliance with `docs/Newdesign.md` across all application pages, components, and layout structures:
+1. **Phase 102 — Design Tokens & Core Engine (`app/globals.css`)**:
+   - Palette: `--color-brand-primary` (`#2B62C6`), `--color-brand-secondary` (`#B4D1EF`), `--color-bg` (`#F4F0E5`), `--color-surface` (`#FFFFFF`), `--color-ink` (`#22261E`), `--color-ink-muted` (`#6B6A5E`), `--color-border` (`#E2DCC9`).
+   - Single border rule: `--color-border` (`#E2DCC9`) 1px border used everywhere. 2px focus ring (`rgba(43,98,198,0.40)`).
+   - Radius scale: `--radius-sm: 6px`, `--radius-md: 10px`, `--radius-lg: 14px`, `--radius-full: 999px`.
+   - Spacing scale: Base 8px unit (`--space-1` to `--space-12`).
+   - Typography scale: Responsive `--text-h1` (28/36px) through `--text-caption` (12px).
+   - Breakpoint Engine: Mobile `<768px`, Tablet `768px–1199px`, Desktop `≥1200px`. Max layout width 1400px.
+2. **Phase 103 — Reusable Component Library Pass**:
+   - `components/StatusBadge.tsx`: Strict 4-family status badge system (`success` green, `warning` gold, `error` red, `info`/`neutral` blue) with fixed 22px height, full rounded pill radius, and `getBadgeVariant()` helper.
+   - `components/AppSidebar.tsx`, `components/MobileHeader.tsx`, `components/ErrorMessage.tsx`, `components/LoadingGecko.tsx` audited and aligned with design system tokens.
+3. **Phase 104 — Table Strategy Rollout & Page Audit across all 21 Pages**:
+   - Implemented Mobile Card-per-row view (`.mobile-only .mobile-card-list` / `.mobile-data-card`) and Desktop Table view (`.desktop-only`) across Dashboard, Sales, Items, Inventory, History, Warehouse, Replacement, Return/Refund, Damaged Products, Expenses, Vendors, Customers, Activity, Sales Log, Profitability, Reconciliation, Announcements, Admin, Notes, Onboarding Wizard, and Login pages.
+   - Replaced all ad-hoc inline status badges with unified `<StatusBadge status={...} />`.
+4. **Phase 105 — Verification & Build**:
+   - `npm run build` executed and passed cleanly (0 errors, 25 static & dynamic routes compiled). 
+
 ## 2026-08-05 - PART 2 COMPLETE
 All Phase 9 through Phase 17 requirements from `Part2_of_implementation_ficcado.md` fully implemented and verified:
 1. **Schema & Sheet Configuration Updates (Phase 9)**:
@@ -91,10 +109,10 @@ All Phase 28 through Phase 34 requirements from `Part4_of_implementation_ficcado
    - **B2.B & B2.C**: Implemented partial-item, partial-quantity return selection (unchecked by default). Added 3-value Item Verification Status (`Good — Accepted for Return`, `Damaged — Cannot Accept Return`, `Not Received — In Transit`). Item Disposition Path is dynamically hidden when status is `Damaged`. Added Refund Mode selection with mandatory Transaction ID for non-Cash refunds.
    - **B2.D & B2.E**: Full-order return refund amount is sourced directly from Sales sheet Total Amount, preserving original sale discounts and delivery charges.
    - **B2.G**: Added 10 new columns to `MODULE_HEADERS.return_refund` (`Returned Item(s)`, `Returned Item Size(s)`, `Returned Item Quantity(ies)`, `Price Charged (Returned Items)`, `New Final Items Selected`, `New Final Items Sizes`, `Number of New Final Items`, `New Final Items Prices Each`, `New Discount Applied`, `New Final Items Total Amount`). Implemented automatic remaining items calculation with `Add Discount` button. Added `Save Progress` button writing state to Return/Refund sheet ONLY.
-   - **B2.C Close Ticket Validation Gate**: Enforced 5 validation checks on Close Ticket (all returned items have verification status, refund status is Approved/Completed, refund amount > 0, refund mode != null, transaction ID present if non-Cash). Failures display an inline itemized "Missing Information" section.
-
-4. **Audit & Build Verification (Phase 34)**:
-   - Verified TypeScript compilation (`node node_modules/typescript/bin/tsc --noEmit`) with zero errors across all components, API routes, and schema utilities.
+   - **B2.C Close Ticket Validation Gate**: Enforced 5 validation checks on Close Ticket (all returned items have verification status, refund status is Approved/Completed, refund amount > 0, refund mode != null, transaction id present if non-Cash). Failures display an inline itemized "Missing Information" section.
+   - [x] Vendor Column Shift Root Cause Diagnosis & Legacy Row Auto-Repair Engine.
+   - [x] System-Wide Header Auto-Sync & `formatRowFromHeaderMap` Dynamic Row Formatting across all 17 spreadsheet modules.
+   - [x] TypeScript Build Verification (`node node_modules/typescript/bin/tsc --noEmit` -> 0 errors). errors across all components, API routes, and schema utilities.
 
 ## 2026-08-11 - PART 5 COMPLETE
 All Phase 35 through Phase 44 requirements from `Part5_of_implementation_ficcado.md` fully implemented and verified:
@@ -445,6 +463,36 @@ All 8 sections from `Ficcado production readiness audit protocol.md` fully execu
 6. **Performance & Security**: Confirmed search caching (`searchIndex.ts`), fail-closed authentication (`requireAuth()`), HTTP-only cookies, and encrypted env var secrets.
 7. **Audit Log & Build Verification**: Created [CODE_AUDIT_LOG.md](file:///e:/Ficcado/Ficcado_inventory-sales_management_app/ficcado-inventory-sales-management-app/CODE_AUDIT_LOG.md) detailing all findings and sign-off checklist.
 8. `node node_modules/typescript/bin/tsc --noEmit` → **PASSED. Zero errors.**
+
+## 2026-08-20 - PART 10 COMPLETE ✅
+All Phase 97 through Phase 101 requirements from `Part10_of_implementation_ficcado.md` fully implemented and verified:
+
+1. **Inventory History Tracker Damaged Disposal Fix (Phase 97 / A1)**:
+   - Updated `InventoryHistoryRecord` interface and `recordInventoryHistory()` SDK in `lib/inventoryHistory.ts`: when `transactionType === 'Damaged Disposal'`, `Resulting Balance` logs `N/A — sent to Damaged Products, no Inventory/Warehouse change` instead of numeric `0`.
+   - Applied unified handling across Replacement disposition, Return/Refund disposition, and manual Damaged Product entry write paths.
+   - Updated Inventory History Tracker UI (`app/(app)/dashboard/inventory-history/page.tsx`): conditionally renders `resultingBalance` without appending `pcs` or `piece(s)` when non-numeric (`N/A`).
+
+2. **Return/Refund Amount Display Fix & Audit (Phase 98 / A2)**:
+   - Fixed header mapping lookups and non-numeric string cleaning across `app/api/return-refund/route.ts` and `/dashboard/return-refund` list view.
+   - Audited all 7 surfaces displaying refund amounts (Returns & Refunds list view, detail page, PDF invoices, Sales Log, Dashboard, Payment Transactions ledger, and reports).
+   - Added standing line item to `docs/Ficcado production readiness audit protocol.md` under Section 5 ("One Shared Function Consistency Check").
+
+3. **Profitability: Merged COGS & Gross Profit Box + Discounts Provided Box (Phase 99 / B1)**:
+   - Merged separate COGS and Gross Profit cards into a single container box in `/dashboard/reports/profitability` showing both figures together (Gross Profit = Net Revenue − COGS).
+   - Added new **Discounts Provided** card showing total discounts given on completed sales (`Sale Status === 'Purchase Satisfied and Order Completed'`).
+   - Updated `GET /api/reports/profitability` to aggregate `discountsProvided` across all 4 timeframes (`daily`, `weekly`, `monthly`, `custom`).
+
+4. **Expenses & Vendors Search and Category/Type Filtering (Phase 100 / B2)**:
+   - **Expenses**: Added search input (matching description & admin name) and Category dropdown filter to `/dashboard/expenses` and `GET /api/expenses`.
+   - **Vendors**: Added search input (matching vendor name & purpose) and Vendor Type dropdown filter to `/dashboard/vendors` and `GET /api/vendors`.
+
+5. **Audit & Build Verification (Phase 101)**:
+   - `node node_modules/typescript/bin/tsc --noEmit` → **PASSED. Zero errors.**
+
+6. **Return Amount Sourcing Refinement (User Direct Instruction)**:
+   - Updated system-wide Return/Refund amount calculation to source exclusively from `Price Charged (Returned Items)` (sum of unit prices of returned items).
+   - Removed all legacy fallbacks to original sale's `Total Amount` / `Original Total Amount` across ticket processing (`/dashboard/return-refund/[id]`), API routes (`/api/return-refund`, `/api/return-refund/[id]`, `/api/sales/[id]`), and Financial Ledgers (`/api/reports/payment-transactions`).
+
 
 
 

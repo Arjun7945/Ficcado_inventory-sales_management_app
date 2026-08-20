@@ -14,6 +14,7 @@ import Link from 'next/link';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
 import MobileBackButton from '@/components/MobileBackButton';
+import StatusBadge from '@/components/StatusBadge';
 
 interface ReplacementRecord {
   rowIndex:                            number;
@@ -151,9 +152,7 @@ export default function ReplacementPage() {
                     <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--color-brand-primary)', fontSize: 14 }}>
                       {r.invoiceNumber}
                     </span>
-                    <span className={`badge ${isDone ? 'badge-success' : 'badge-warning'}`}>
-                      {r.invoiceStatus}
-                    </span>
+                    <StatusBadge status={r.invoiceStatus} />
                   </div>
 
                   <div style={{ fontSize: 13, fontWeight: 500 }}>
@@ -244,9 +243,7 @@ export default function ReplacementPage() {
                       <td>{r.disposition ? <span className="badge badge-info">{r.disposition}</span> : '—'}</td>
                       <td>{r.newStockSource ? <span className="badge badge-neutral">{r.newStockSource}</span> : '—'}</td>
                       <td>
-                        <span className={`badge ${isDone ? 'badge-success' : 'badge-warning'}`}>
-                          {r.invoiceStatus}
-                        </span>
+                    <StatusBadge status={r.invoiceStatus} />
                       </td>
                       <td>
                         <div style={{ display: 'flex', gap: 6 }}>

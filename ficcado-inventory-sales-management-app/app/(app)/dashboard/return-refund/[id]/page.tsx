@@ -248,12 +248,7 @@ export default function ReturnRefundDetailPage({ params }: { params: Promise<{ i
   const totalReturnPieces = selectedReturnItems.reduce((sum, i) => sum + i.qty, 0);
   const isFullOrderReturn = totalPiecesInOrder > 0 && totalReturnPieces === totalPiecesInOrder;
 
-  let computedRefundAmount = 0;
-  if (isFullOrderReturn) {
-    computedRefundAmount = grandTotalSaleAmount;
-  } else {
-    computedRefundAmount = selectedReturnItems.reduce((sum, i) => sum + (i.qty * i.unitPrice), 0);
-  }
+  const computedRefundAmount = selectedReturnItems.reduce((sum, i) => sum + (i.qty * i.unitPrice), 0);
 
   const effectiveRefundAmount = manualRefundAmount !== ''
     ? parseFloat(manualRefundAmount) || 0
@@ -736,10 +731,10 @@ export default function ReturnRefundDetailPage({ params }: { params: Promise<{ i
             fontSize: 13,
           }}>
             <div style={{ fontWeight: 700, color: 'var(--color-brand-primary)', marginBottom: 2 }}>
-              ℹ Full-Order Return Sourcing Enabled
+              ℹ Return Amount Sourced from Price Charged (Returned Items)
             </div>
             <div>
-              Because every item in this order is selected for return, the Total Refund Amount is sourced directly from the original sale&apos;s <strong>Total Amount (₹{grandTotalSaleAmount.toLocaleString('en-IN')})</strong>, properly preserving original discounts (₹{originalDiscount}) and delivery charges (₹{originalDeliveryCharge}).
+              The Total Refund Amount is calculated directly from the price charged for the returned items (₹{computedRefundAmount.toLocaleString('en-IN')}).
             </div>
           </div>
         )}
@@ -756,7 +751,7 @@ export default function ReturnRefundDetailPage({ params }: { params: Promise<{ i
               step="0.01"
             />
             <div style={{ fontSize: 11, color: 'var(--color-ink-muted)', marginTop: 4 }}>
-              Auto-computed based on {isFullOrderReturn ? 'Full-Order Total Amount' : 'selected returned items'}. You can adjust manually if needed.
+              Auto-computed based on Price Charged for returned items. You can adjust manually if needed.
             </div>
           </div>
 

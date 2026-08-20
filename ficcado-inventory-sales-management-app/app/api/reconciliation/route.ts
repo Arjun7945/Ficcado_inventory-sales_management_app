@@ -3,16 +3,14 @@
  *
  * GET /api/reconciliation
  * Dedicated API endpoint for Inventory vs. Warehouse Stock Reconciliation.
- * Compares total main inventory stock against allocated warehouse stock per item+size.
+ * Position-independent header mapping.
  */
 
 import { requireAuth } from '@/lib/auth';
 import { readAllRows } from '@/lib/google/moduleSheet';
+import { buildHeaderMap, getCellByHeader } from '@/lib/google/headerUtils';
 
 export const dynamic = 'force-dynamic';
-
-const COL_INV = { itemName: 1, size: 2, qty: 3 };
-const COL_W   = { itemName: 3, size: 4, qty: 5 };
 
 export async function GET() {
   try { await requireAuth(); }
@@ -24,12 +22,15 @@ export async function GET() {
       readAllRows('warehouse'),
     ]);
 
+    const invHeaderMap = buildHeaderMap(invRows[0] ?? []);
+    const wHeaderMap   = buildHeaderMap(wRows[0] ?? []);
+
     // Parse Main Inventory stock: key -> { itemName, size, qty }
     const invMap: Record<string, { itemName: string; size: string; qty: number }> = {};
     for (const r of invRows.slice(1)) {
-      const name = (r[COL_INV.itemName] ?? '').trim();
-      const size = (r[COL_INV.size]     ?? '').trim();
-      const qty  = parseInt(r[COL_INV.qty] ?? '0', 10) || 0;
+      const name = getCellByHeader(r, invHeaderMap, 'Item Name').trim();
+      const size = getCellByHeader(r, invHeaderMap, 'Size').trim();
+      const qty  = parseInt(getCellByHeader(r, invHeaderMap, 'Total Quantity Available', getCellByHeader(r, invHeaderMap, 'Quantity', '0')), 10) || 0;
       if (name && size) {
         const normKey = `${name.toLowerCase()}:${size.toUpperCase()}`;
         if (!invMap[normKey]) {
@@ -42,9 +43,9 @@ export async function GET() {
     // Parse Warehouse allocations: key -> total allocated qty
     const wMap: Record<string, { itemName: string; size: string; qty: number }> = {};
     for (const r of wRows.slice(1)) {
-      const name = (r[COL_W.itemName] ?? '').trim();
-      const size = (r[COL_W.size]     ?? '').trim();
-      const qty  = parseInt(r[COL_W.qty] ?? '0', 10) || 0;
+      const name = getCellByHeader(r, wHeaderMap, 'Item Name').trim();
+      const size = getCellByHeader(r, wHeaderMap, 'Size').trim();
+      const qty  = parseInt(getCellByHeader(r, wHeaderMap, 'Quantity', '0'), 10) || 0;
       if (name && size) {
         const normKey = `${name.toLowerCase()}:${size.toUpperCase()}`;
         if (!wMap[normKey]) {
@@ -54,7 +55,6 @@ export async function GET() {
       }
     }
 
-    // Combine all unique keys from BOTH inventory and warehouse sheets
     const allKeys = new Set([...Object.keys(invMap), ...Object.keys(wMap)]);
 
     const recon = Array.from(allKeys).map((normKey) => {
@@ -66,7 +66,7 @@ export async function GET() {
       const inventoryTotal = invObj?.qty || 0;
       const warehouseTotal = wObj?.qty   || 0;
       const difference     = inventoryTotal - warehouseTotal;
-      const mismatch       = warehouseTotal > inventoryTotal; // Over-allocated beyond main inventory
+      const mismatch       = warehouseTotal > inventoryTotal;
 
       return {
         itemName,

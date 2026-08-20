@@ -93,13 +93,23 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
 
     const handlersList = Array.from(allHandlersMap.values());
 
+    const rawRef = getCellByHeader(r, retMap, 'Refund Amount');
+    const priceChargedStr = getCellByHeader(r, retMap, 'Price Charged (Returned Items)');
+    const refNum = parseFloat(rawRef.replace(/[^0-9.]/g, '')) || 0;
+    let effectiveRefStr = rawRef;
+    if (refNum === 0 && priceChargedStr) {
+      const parts = priceChargedStr.split(',').map((p) => parseFloat(p.replace(/[^0-9.]/g, '')) || 0);
+      const sum = parts.reduce((a, b) => a + b, 0);
+      if (sum > 0) effectiveRefStr = String(sum);
+    }
+
     return Response.json({
       record: {
         rowIndex:           idx + 2,
         invoiceNumber:      getCellByHeader(r, retMap, 'Invoice Number'),
         verificationStatus: getCellByHeader(r, retMap, 'Item Verification Status'),
         refundStatus:       getCellByHeader(r, retMap, 'Refund Status'),
-        refundAmount:       getCellByHeader(r, retMap, 'Refund Amount'),
+        refundAmount:       effectiveRefStr,
         refundCompletedAt:  getCellByHeader(r, retMap, 'Refund Completed Date & Time'),
         transactionId:      getCellByHeader(r, retMap, 'Transaction ID'),
         modeOfRefund:       getCellByHeader(r, retMap, 'Mode of Refund'),

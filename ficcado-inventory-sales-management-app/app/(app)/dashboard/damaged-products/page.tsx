@@ -200,59 +200,91 @@ export default function DamagedProductsPage() {
             </div>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Invoice #</th>
-                  <th>Item Name</th>
-                  <th>Size</th>
-                  <th>Quantity</th>
-                  <th>Customer Name</th>
-                  <th>Reason / Notes</th>
-                  <th>Logged Date</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((item) => (
-                  <tr key={item.rowIndex}>
-                    <td>
-                      {item.invoiceNumber ? (
-                        <span style={{ fontWeight: 700, color: 'var(--color-brand-primary)', fontFamily: 'var(--font-display)' }}>
-                          {item.invoiceNumber}
-                        </span>
-                      ) : (
-                        <span style={{ color: 'var(--color-ink-muted)', fontSize: 12 }}>Manual</span>
-                      )}
-                    </td>
-                    <td style={{ fontWeight: 600 }}>{item.itemName}</td>
-                    <td><span className="badge badge-neutral">{item.size}</span></td>
-                    <td className="tabular-nums" style={{ fontWeight: 700 }}>{item.quantity} piece(s)</td>
-                    <td>{item.customerName || '—'}</td>
-                    <td style={{ fontSize: 12.5, color: 'var(--color-ink-muted)' }}>{item.reasonNotes || '—'}</td>
-                    <td style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>
-                      {formatISTDateTime(item.createdAt)}
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <button className="btn btn-ghost btn-sm" onClick={() => handleOpenEdit(item)}>
-                          Edit
-                        </button>
-                        <button
-                          className="btn btn-danger btn-sm"
-                          disabled={deletingRow === item.rowIndex}
-                          onClick={() => handleDelete(item.rowIndex, `${item.itemName} (${item.size})`)}
-                        >
-                          {deletingRow === item.rowIndex ? '…' : 'Delete'}
-                        </button>
-                      </div>
-                    </td>
+          <>
+            {/* Mobile View Card List */}
+            <div className="mobile-only mobile-card-list" style={{ padding: 12 }}>
+              {filtered.map((item) => (
+                <div key={item.rowIndex} className="mobile-data-card">
+                  <div className="mobile-data-card-header">
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>{item.itemName}</span>
+                    <span className="badge badge-error">Damaged ({item.quantity} pcs)</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                    <span>Invoice: <strong>{item.invoiceNumber || 'Manual'}</strong></span>
+                    <span>Size: <strong>{item.size}</strong></span>
+                  </div>
+                  {item.customerName && (
+                    <div style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>Customer: {item.customerName}</div>
+                  )}
+                  {item.reasonNotes && (
+                    <div style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>Reason: {item.reasonNotes}</div>
+                  )}
+                  <div style={{ fontSize: 11, color: 'var(--color-ink-muted)' }}>Logged: {formatISTDateTime(item.createdAt)}</div>
+                  <div className="mobile-data-card-actions">
+                    <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => handleOpenEdit(item)}>Edit</button>
+                    <button className="btn btn-danger btn-sm" disabled={deletingRow === item.rowIndex} onClick={() => handleDelete(item.rowIndex, `${item.itemName} (${item.size})`)}>
+                      {deletingRow === item.rowIndex ? '…' : 'Delete'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table View */}
+            <div className="desktop-only" style={{ overflowX: 'auto' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Invoice #</th>
+                    <th>Item Name</th>
+                    <th>Size</th>
+                    <th>Quantity</th>
+                    <th>Customer Name</th>
+                    <th>Reason / Notes</th>
+                    <th>Logged Date</th>
+                    <th>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {filtered.map((item) => (
+                    <tr key={item.rowIndex}>
+                      <td>
+                        {item.invoiceNumber ? (
+                          <span style={{ fontWeight: 700, color: 'var(--color-brand-primary)', fontFamily: 'var(--font-display)' }}>
+                            {item.invoiceNumber}
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--color-ink-muted)', fontSize: 12 }}>Manual</span>
+                        )}
+                      </td>
+                      <td style={{ fontWeight: 600 }}>{item.itemName}</td>
+                      <td><span className="badge badge-neutral">{item.size}</span></td>
+                      <td className="tabular-nums" style={{ fontWeight: 700 }}>{item.quantity} piece(s)</td>
+                      <td>{item.customerName || '—'}</td>
+                      <td style={{ fontSize: 12.5, color: 'var(--color-ink-muted)' }}>{item.reasonNotes || '—'}</td>
+                      <td style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>
+                        {formatISTDateTime(item.createdAt)}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button className="btn btn-ghost btn-sm" onClick={() => handleOpenEdit(item)}>
+                            Edit
+                          </button>
+                          <button
+                            className="btn btn-danger btn-sm"
+                            disabled={deletingRow === item.rowIndex}
+                            onClick={() => handleDelete(item.rowIndex, `${item.itemName} (${item.size})`)}
+                          >
+                            {deletingRow === item.rowIndex ? '…' : 'Delete'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 

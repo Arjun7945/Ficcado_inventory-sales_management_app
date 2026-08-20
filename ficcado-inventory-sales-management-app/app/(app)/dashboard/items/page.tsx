@@ -9,6 +9,7 @@
 import React, { useEffect, useState } from 'react';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
+import StatusBadge from '@/components/StatusBadge';
 
 interface Item {
   rowIndex:  number;
@@ -200,64 +201,101 @@ export default function ItemsPage() {
           </div>
         </div>
       ) : (
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>S.No</th>
-                  <th>Item Name</th>
-                  <th>Type</th>
-                  <th>Selling Price</th>
-                  <th>Cost Price</th>
-                  <th>Margin</th>
-                  <th>Sizes</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((item) => {
-                  const p = parseFloat(item.price || '0') || 0;
-                  const c = parseFloat(item.costPrice || '0') || 0;
-                  const margin = p > 0 ? (p - c) : 0;
-                  return (
-                    <tr key={item.sno}>
-                      <td style={{ color: 'var(--color-ink-muted)', fontSize: 12 }}>{item.sno}</td>
-                      <td style={{ fontWeight: 600 }}>{item.itemName}</td>
-                      <td>{item.itemType || '—'}</td>
-                      <td style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: 'var(--color-brand-primary)' }}>₹{item.price}</td>
-                      <td style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--color-ink-muted)' }}>₹{item.costPrice || '0'}</td>
-                      <td style={{ fontVariantNumeric: 'tabular-nums', fontSize: 12, color: margin >= 0 ? 'var(--color-success)' : 'var(--color-error)' }}>
-                        ₹{margin.toLocaleString('en-IN')}
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                          {(item.sizes || '').split(/,\s*/).map((s) => s.trim()).filter(Boolean).map((s) => (
-                            <span key={s} className="badge badge-neutral" style={{ fontSize: 11 }}>{s}</span>
-                          ))}
-                        </div>
-                      </td>
-                      <td>
-                        <span className={`badge ${item.status === 'In Stock' ? 'badge-success' : 'badge-error'}`}>
-                          {item.status || '—'}
-                        </span>
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button className="btn btn-secondary btn-sm" onClick={() => openEdit(item)}>Edit</button>
-                          <button className="btn btn-danger btn-sm" onClick={() => handleDelete(item)} disabled={deleting === item.sno}>
-                            {deleting === item.sno ? <LoadingGecko size="inline" label="Deleting…" /> : 'Delete'}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+        <>
+          {/* Mobile View Card List */}
+          <div className="mobile-only mobile-card-list" style={{ marginBottom: 20 }}>
+            {filtered.map((item) => {
+              const p = parseFloat(item.price || '0') || 0;
+              const c = parseFloat(item.costPrice || '0') || 0;
+              const margin = p > 0 ? (p - c) : 0;
+              return (
+                <div key={item.sno} className="mobile-data-card">
+                  <div className="mobile-data-card-header">
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>{item.itemName}</span>
+                    <StatusBadge status={item.status} />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                    <span style={{ color: 'var(--color-ink-muted)' }}>Type: {item.itemType || '—'}</span>
+                    <span className="tabular-nums" style={{ fontWeight: 600, color: 'var(--color-brand-primary)' }}>₹{item.price}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                    <span style={{ color: 'var(--color-ink-muted)' }}>Cost: ₹{item.costPrice || '0'}</span>
+                    <span style={{ color: margin >= 0 ? 'var(--color-success)' : 'var(--color-error)' }}>
+                      Margin: ₹{margin.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>
+                    Sizes: {(item.sizes || '').split(/,\s*/).filter(Boolean).join(', ')}
+                  </div>
+                  <div className="mobile-data-card-actions">
+                    <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => openEdit(item)}>Edit</button>
+                    <button className="btn btn-danger btn-sm" onClick={() => handleDelete(item)} disabled={deleting === item.sno}>
+                      {deleting === item.sno ? <LoadingGecko size="inline" label="Deleting…" /> : 'Delete'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        </div>
+
+          {/* Desktop/Tablet Table View */}
+          <div className="desktop-only card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>S.No</th>
+                    <th>Item Name</th>
+                    <th>Type</th>
+                    <th>Selling Price</th>
+                    <th>Cost Price</th>
+                    <th>Margin</th>
+                    <th>Sizes</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((item) => {
+                    const p = parseFloat(item.price || '0') || 0;
+                    const c = parseFloat(item.costPrice || '0') || 0;
+                    const margin = p > 0 ? (p - c) : 0;
+                    return (
+                      <tr key={item.sno}>
+                        <td style={{ color: 'var(--color-ink-muted)', fontSize: 12 }}>{item.sno}</td>
+                        <td style={{ fontWeight: 600 }}>{item.itemName}</td>
+                        <td>{item.itemType || '—'}</td>
+                        <td style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: 'var(--color-brand-primary)' }}>₹{item.price}</td>
+                        <td style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--color-ink-muted)' }}>₹{item.costPrice || '0'}</td>
+                        <td style={{ fontVariantNumeric: 'tabular-nums', fontSize: 12, color: margin >= 0 ? 'var(--color-success)' : 'var(--color-error)' }}>
+                          ₹{margin.toLocaleString('en-IN')}
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            {(item.sizes || '').split(/,\s*/).map((s) => s.trim()).filter(Boolean).map((s) => (
+                              <span key={s} className="badge badge-neutral" style={{ fontSize: 11 }}>{s}</span>
+                            ))}
+                          </div>
+                        </td>
+                        <td>
+                          <StatusBadge status={item.status} />
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button className="btn btn-secondary btn-sm" onClick={() => openEdit(item)}>Edit</button>
+                            <button className="btn btn-danger btn-sm" onClick={() => handleDelete(item)} disabled={deleting === item.sno}>
+                              {deleting === item.sno ? <LoadingGecko size="inline" label="Deleting…" /> : 'Delete'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
       )}
 
       {/* Create Modal */}

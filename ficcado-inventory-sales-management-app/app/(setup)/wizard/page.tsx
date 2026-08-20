@@ -420,7 +420,7 @@ export default function WizardPage() {
               onClick={() => setStep2Mode('automated')}
               style={{ flex: 1, justifyContent: 'center' }}
             >
-              ⚡ Auto-Setup All 12 Tabs (Default)
+              ⚡ Auto-Setup All 17 Tabs (Default)
             </button>
             <button
               className={`btn ${step2Mode === 'custom' ? 'btn-primary' : 'btn-ghost'}`}
@@ -514,7 +514,7 @@ export default function WizardPage() {
                       display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1
                     }}>3</div>
                     <div style={{ fontSize: 13, color: 'var(--color-ink)', lineHeight: 1.4 }}>
-                      Copy your Spreadsheet URL or ID from the address bar, paste it below, and click <strong>Auto-Setup All 13 Tabs</strong>!
+                      Copy your Spreadsheet URL or ID from the address bar, paste it below, and click <strong>Auto-Setup All 17 Tabs</strong>!
                     </div>
                   </div>
                 </div>
@@ -568,7 +568,7 @@ export default function WizardPage() {
                 disabled={loading}
                 style={{ width: '100%', justifyContent: 'center', padding: '12px 16px', fontSize: 14 }}
               >
-                {loading ? <LoadingGecko size="inline" label="Creating 13 Tabs & Headers…" /> : '✨ Auto-Setup All 13 Tabs with Pre-Formatted Headers'}
+                {loading ? <LoadingGecko size="inline" label="Creating 13 Tabs & Headers…" /> : '✨ Auto-Setup All 17 Tabs with Pre-Formatted Headers'}
               </button>
             </div>
           )}

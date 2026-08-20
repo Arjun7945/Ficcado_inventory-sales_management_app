@@ -6,14 +6,7 @@
  * Shared server-error surface (Phase 8a).
  * Shows a plain-language explanation of what failed and what to do next.
  * Never shows raw HTTP status codes or stack traces.
- *
- * Per DESIGN.md Section 3.1:
- *  - Be specific, not generic
- *  - Say what to do next
- *  - Match the voice: direct, calm, factual
  */
-
-
 
 type ErrorVariant = 'error' | 'warning' | 'conflict' | 'success';
 
@@ -83,12 +76,18 @@ export default function ErrorMessage({
  * Map API error responses to user-friendly messages.
  * Inspects the error object and returns appropriate message + hint.
  */
-export function parseApiError(err: unknown): { message: string; hint?: string } {
+export function parseApiError(err: unknown, status?: number): { message: string; hint?: string } {
   if (!err) return { message: "An unexpected error occurred. Please try again." };
 
   if (typeof err === 'string') {
     if (err === '[object Event]') {
       return { message: "A network connection error occurred. Please check your internet connection and try again." };
+    }
+    if (err.includes('Not authenticated') || err.includes('Authentication required')) {
+      return {
+        message: 'Your admin session has expired or you are not logged in.',
+        hint:    'Please log in again or complete setup to continue.',
+      };
     }
     return { message: err };
   }
@@ -117,7 +116,7 @@ export function parseApiError(err: unknown): { message: string; hint?: string } 
     }
 
     // Conflict (version mismatch)
-    if (e.status === 409 || e.type === 'conflict') {
+    if (status === 409 || e.status === 409 || e.type === 'conflict') {
       return {
         message: `This record was updated by ${e.updatedBy ?? 'another admin'} at ${e.updatedAt ?? 'an unknown time'} — reload to see the changes before saving yours.`,
         hint:    'Reload this record to see the latest version.',
@@ -125,15 +124,16 @@ export function parseApiError(err: unknown): { message: string; hint?: string } 
     }
 
     // Not authenticated
-    if (e.status === 401) {
+    const errText = String(e.error || e.message || '');
+    if (status === 401 || e.status === 401 || errText.includes('Not authenticated') || errText.includes('Authentication required')) {
       return {
-        message: 'Your session has expired.',
-        hint:    'Log in again to continue.',
+        message: 'Your admin session has expired or is invalid.',
+        hint:    'Please click "Logout" at the bottom left and log in again to continue.',
       };
     }
 
     // Not authorised
-    if (e.status === 403) {
+    if (status === 403 || e.status === 403) {
       return {
         message: 'You don\'t have permission for this action.',
       };

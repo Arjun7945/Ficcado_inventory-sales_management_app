@@ -1,17 +1,17 @@
 /**
  * app/api/expenses/route.ts
  *
- * GET  /api/expenses — list all expense entries (all admins see all)
- * POST /api/expenses — create a new expense (auto-fills Admin Name from session)
+ * GET  /api/expenses — list all expense entries
+ * POST /api/expenses — create a new expense (with header-mapped formatting)
  *
  * Phase 77 (B4): Expense Management module.
- * Category "Other" stores the admin's custom text in the Custom Category column.
  */
 
 import { getAuthSession } from '@/lib/auth';
-import { readAllRows, appendRows } from '@/lib/google/moduleSheet';
-import { buildHeaderMap, getCellByHeader } from '@/lib/google/headerUtils';
+import { readAllRows, appendRows, updateRow } from '@/lib/google/moduleSheet';
+import { buildHeaderMap, getCellByHeader, formatRowFromHeaderMap } from '@/lib/google/headerUtils';
 import { logActivity } from '@/lib/activityLogger';
+import { MODULE_REGISTRY } from '@/lib/google/moduleRegistry';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,19 +26,32 @@ const PRESET_CATEGORIES = [
   'Other',
 ];
 
-export async function GET() {
+const EXPECTED_HEADERS = MODULE_REGISTRY.expenses.headers;
+
+export async function GET(request: Request) {
   const auth = await getAuthSession();
   if ('errorResponse' in auth) return auth.errorResponse;
 
+  const { searchParams } = new URL(request.url);
+  const search = (searchParams.get('search') || '').trim().toLowerCase();
+  const categoryFilter = (searchParams.get('category') || '').trim().toLowerCase();
+
   try {
     const rows = await readAllRows('expenses');
-    if (rows.length === 0) return Response.json({ expenses: [] });
+    if (rows.length === 0) {
+      await updateRow('expenses', 1, EXPECTED_HEADERS).catch(() => {});
+      return Response.json({ expenses: [] });
+    }
+
+    // Auto-sync header row if outdated
+    if (rows[0] && rows[0].length < EXPECTED_HEADERS.length) {
+      await updateRow('expenses', 1, EXPECTED_HEADERS).catch(() => {});
+    }
 
     const headerMap = buildHeaderMap(rows[0]);
     const expenses = rows.slice(1).map((row, i) => {
       const category       = getCellByHeader(row, headerMap, 'Expense Category');
       const customCategory = getCellByHeader(row, headerMap, 'Custom Category');
-      // Effective display category: if "Other", show customCategory text
       const displayCategory = category === 'Other' && customCategory ? customCategory : category;
       return {
         rowIndex:        i + 2,
@@ -57,7 +70,22 @@ export async function GET() {
       };
     }).filter((e) => e.adminName || e.description);
 
-    return Response.json({ expenses });
+    let filtered = expenses;
+    if (search) {
+      filtered = filtered.filter((e) =>
+        e.description.toLowerCase().includes(search) ||
+        e.adminName.toLowerCase().includes(search) ||
+        e.createdBy.toLowerCase().includes(search)
+      );
+    }
+    if (categoryFilter) {
+      filtered = filtered.filter((e) =>
+        e.category.toLowerCase() === categoryFilter ||
+        e.displayCategory.toLowerCase() === categoryFilter
+      );
+    }
+
+    return Response.json({ expenses: filtered });
   } catch (err: any) {
     return Response.json({ error: 'Failed to load expenses.', detail: err?.message }, { status: 500 });
   }
@@ -95,22 +123,28 @@ export async function POST(request: Request) {
     }
 
     const rows = await readAllRows('expenses');
+    if (rows.length === 0 || (rows[0] && rows[0].length < EXPECTED_HEADERS.length)) {
+      await updateRow('expenses', 1, EXPECTED_HEADERS).catch(() => {});
+    }
+
     const sno  = String(Math.max(rows.length - 1, 0) + 1);
     const now  = new Date().toISOString();
 
-    const newRow = [
-      sno,
-      admin.name,
-      category,
-      category === 'Other' ? (customCategory?.trim() ?? '') : '',
-      description.trim(),
-      String(parseFloat(String(amount))),
-      dateOfExpense,
-      now,
-      admin.name,
-      '',
-      '',
-    ];
+    const rowObj = {
+      'S.No':             sno,
+      'Admin Name':        admin.name,
+      'Expense Category': category,
+      'Custom Category':  category === 'Other' ? (customCategory?.trim() ?? '') : '',
+      'Description':      description.trim(),
+      'Amount':           String(parseFloat(String(amount))),
+      'Date of Expense':  dateOfExpense,
+      'Created At':       now,
+      'Created By':       admin.name,
+      'Updated At':       '',
+      'Updated By':       '',
+    };
+
+    const newRow = formatRowFromHeaderMap(rowObj, EXPECTED_HEADERS);
 
     await appendRows('expenses', [newRow]);
     await logActivity({

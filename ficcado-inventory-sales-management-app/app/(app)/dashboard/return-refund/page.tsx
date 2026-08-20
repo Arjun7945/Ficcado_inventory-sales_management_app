@@ -14,6 +14,7 @@ import Link from 'next/link';
 import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
 import MobileBackButton from '@/components/MobileBackButton';
+import StatusBadge from '@/components/StatusBadge';
 
 interface ReturnRecord {
   rowIndex:           number;
@@ -132,7 +133,7 @@ export default function ReturnRefundPage() {
                       Items: {r.returnedItems || 'Pending Selection'}
                     </div>
                     <div style={{ fontWeight: 700, fontSize: 14, fontFamily: 'var(--font-display)', color: 'var(--color-error)' }}>
-                      ₹{parseFloat(r.refundAmount || '0').toLocaleString('en-IN')}
+                      ₹{(parseFloat(String(r.refundAmount || '0').replace(/[^0-9.]/g, '')) || 0).toLocaleString('en-IN')}
                     </div>
                   </div>
 
@@ -201,20 +202,13 @@ export default function ReturnRefundPage() {
                         </Link>
                       </td>
                       <td>
-                        <span className={`badge ${
-                          r.verificationStatus?.includes('Good') ? 'badge-success' :
-                          r.verificationStatus?.includes('Damaged') ? 'badge-error' : 'badge-warning'
-                        }`}>
-                          {r.verificationStatus || 'Pending'}
-                        </span>
+                        <StatusBadge status={r.verificationStatus || 'Pending'} />
                       </td>
                       <td>
-                        <span className={`badge ${isDone ? 'badge-success' : 'badge-warning'}`}>
-                          {r.refundStatus}
-                        </span>
+                        <StatusBadge status={r.refundStatus} />
                       </td>
                       <td style={{ fontWeight: 600 }} className="tabular-nums">
-                        ₹{parseFloat(r.refundAmount || '0').toLocaleString('en-IN')}
+                        ₹{(parseFloat(String(r.refundAmount || '0').replace(/[^0-9.]/g, '')) || 0).toLocaleString('en-IN')}
                       </td>
                       <td>
                         {r.returnedItems ? (

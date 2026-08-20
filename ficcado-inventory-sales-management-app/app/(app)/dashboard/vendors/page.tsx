@@ -16,7 +16,17 @@ import LoadingGecko from '@/components/LoadingGecko';
 import ErrorMessage, { parseApiError } from '@/components/ErrorMessage';
 import { formatISTDateTime } from '@/lib/dateUtils';
 
-const VENDOR_TYPES = ['Courier Partner', 'Designer', 'Printing', 'Marketing', 'Other'];
+const VENDOR_TYPES = [
+  'Courier Partner',
+  'Designer Team',
+  'Printing Partner',
+  'Marketing Partners',
+  'Packing Team',
+  'Stock Management Team',
+  'Transportation Team',
+  'Handler Team',
+  'Other',
+];
 
 interface VendorEntry {
   rowIndex:        number;
@@ -60,6 +70,10 @@ export default function VendorsPage() {
   const [purposeUse, setPurposeUse]           = useState('');
   const [submitting, setSubmitting]           = useState(false);
   const [formError, setFormError]             = useState<string | null>(null);
+
+  // Search & Filter
+  const [search, setSearch]                 = useState('');
+  const [vendorTypeFilter, setVendorTypeFilter] = useState('');
 
   // Detail / Payment Log view
   const [selectedVendor, setSelectedVendor]   = useState<VendorEntry | null>(null);
@@ -210,6 +224,18 @@ export default function VendorsPage() {
 
   const totalPaid = vendors.reduce((sum, v) => sum + (parseFloat(v.totalAmountPaid) || 0), 0);
 
+  const filteredVendors = vendors.filter((v) => {
+    const q = search.trim().toLowerCase();
+    const matchSearch = !q ||
+      (v.vendorName || '').toLowerCase().includes(q) ||
+      (v.purposeUse || '').toLowerCase().includes(q) ||
+      (v.contactDetails || '').toLowerCase().includes(q);
+    const matchType = !vendorTypeFilter ||
+      (v.vendorType || '').toLowerCase() === vendorTypeFilter.toLowerCase() ||
+      (v.displayType || '').toLowerCase() === vendorTypeFilter.toLowerCase();
+    return matchSearch && matchType;
+  });
+
   return (
     <div>
       <div className="page-header">
@@ -226,57 +252,113 @@ export default function VendorsPage() {
       {error   && <ErrorMessage message={error.message}   onDismiss={() => setError(null)} />}
       {success && <ErrorMessage message={success} variant="success" onDismiss={() => setSuccess(null)} />}
 
+      {/* Search & Filter Bar */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div className="search-bar" style={{ flex: 1, minWidth: 220 }}>
+          <span style={{ color: 'var(--color-ink-muted)' }}>⌕</span>
+          <input
+            type="text"
+            className="form-input"
+            placeholder="Search by vendor name or purpose…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <select
+          className="form-select"
+          style={{ width: 220 }}
+          value={vendorTypeFilter}
+          onChange={(e) => setVendorTypeFilter(e.target.value)}
+        >
+          <option value="">All Vendor Types</option>
+          {Array.from(new Set([...VENDOR_TYPES, ...vendors.map(v => v.displayType).filter(Boolean)])).map((type) => (
+            <option key={type} value={type}>{type}</option>
+          ))}
+        </select>
+      </div>
+
       {/* Vendor Table */}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: 48, textAlign: 'center' }}><LoadingGecko label="Loading vendors…" /></div>
-        ) : vendors.length === 0 ? (
+        ) : filteredVendors.length === 0 ? (
           <div className="empty-state">
             <div style={{ fontSize: 28 }}>🤝</div>
-            <div className="empty-state-title">No vendors added yet</div>
-            <div style={{ fontSize: 13, color: 'var(--color-ink-muted)' }}>Click &quot;+ Add Vendor&quot; to register a vendor.</div>
+            <div className="empty-state-title">No matching vendors found</div>
+            <div style={{ fontSize: 13, color: 'var(--color-ink-muted)' }}>
+              {search || vendorTypeFilter ? 'Try clearing your search or type filter.' : 'Click "+ Add Vendor" to register a vendor.'}
+            </div>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Vendor Name</th>
-                  <th>Type</th>
-                  <th>Contact</th>
-                  <th>Purpose/Use</th>
-                  <th style={{ textAlign: 'right' }}>Total Paid</th>
-                  <th>Added By</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {vendors.map((v) => (
-                  <tr key={v.sno}>
-                    <td style={{ color: 'var(--color-ink-muted)', fontSize: 12 }}>{v.sno}</td>
-                    <td style={{ fontWeight: 700 }}>{v.vendorName}</td>
-                    <td><span className="badge badge-neutral">{v.displayType || v.vendorType}</span></td>
-                    <td style={{ fontSize: 12.5, color: 'var(--color-ink-muted)' }}>
-                      <div>{v.phoneNumbers && v.phoneNumbers.length > 0 ? v.phoneNumbers.join(', ') : (v.contactDetails || '—')}</div>
-                      {v.emailId && <div style={{ fontSize: 11.5, color: 'var(--color-brand-primary)' }}>{v.emailId}</div>}
-                    </td>
-                    <td style={{ fontSize: 12.5, maxWidth: 200, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.purposeUse || '—'}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--color-brand-primary)', fontVariantNumeric: 'tabular-nums' }}>
+          <>
+            {/* Mobile View Card List */}
+            <div className="mobile-only mobile-card-list" style={{ padding: 12 }}>
+              {filteredVendors.map((v) => (
+                <div key={v.sno} className="mobile-data-card">
+                  <div className="mobile-data-card-header">
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>{v.vendorName}</span>
+                    <span className="badge badge-neutral">{v.displayType || v.vendorType}</span>
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--color-ink-muted)' }}>
+                    Contact: {v.phoneNumbers && v.phoneNumbers.length > 0 ? v.phoneNumbers.join(', ') : (v.contactDetails || '—')}
+                  </div>
+                  {v.purposeUse && <div style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>Purpose: {v.purposeUse}</div>}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                    <span style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>Total Paid:</span>
+                    <span className="tabular-nums" style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-brand-primary)' }}>
                       ₹{parseFloat(v.totalAmountPaid || '0').toLocaleString('en-IN')}
-                    </td>
-                    <td style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>{v.createdBy}</td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <button className="btn btn-ghost btn-sm" onClick={() => openDetail(v)}>View / Pay</button>
-                        <button className="btn btn-ghost btn-sm" onClick={() => openEdit(v)}>Edit</button>
-                      </div>
-                    </td>
+                    </span>
+                  </div>
+                  <div className="mobile-data-card-actions">
+                    <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => openDetail(v)}>View / Pay</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => openEdit(v)}>Edit</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table View */}
+            <div className="desktop-only" style={{ overflowX: 'auto' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Vendor Name</th>
+                    <th>Type</th>
+                    <th>Contact</th>
+                    <th>Purpose/Use</th>
+                    <th style={{ textAlign: 'right' }}>Total Paid</th>
+                    <th>Added By</th>
+                    <th>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {filteredVendors.map((v) => (
+                    <tr key={v.sno}>
+                      <td style={{ color: 'var(--color-ink-muted)', fontSize: 12 }}>{v.sno}</td>
+                      <td style={{ fontWeight: 700 }}>{v.vendorName}</td>
+                      <td><span className="badge badge-neutral">{v.displayType || v.vendorType}</span></td>
+                      <td style={{ fontSize: 12.5, color: 'var(--color-ink-muted)' }}>
+                        <div>{v.phoneNumbers && v.phoneNumbers.length > 0 ? v.phoneNumbers.join(', ') : (v.contactDetails || '—')}</div>
+                        {v.emailId && <div style={{ fontSize: 11.5, color: 'var(--color-brand-primary)' }}>{v.emailId}</div>}
+                      </td>
+                      <td style={{ fontSize: 12.5, maxWidth: 200, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.purposeUse || '—'}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--color-brand-primary)', fontVariantNumeric: 'tabular-nums' }}>
+                        ₹{parseFloat(v.totalAmountPaid || '0').toLocaleString('en-IN')}
+                      </td>
+                      <td style={{ fontSize: 12, color: 'var(--color-ink-muted)' }}>{v.createdBy}</td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button className="btn btn-ghost btn-sm" onClick={() => openDetail(v)}>View / Pay</button>
+                          <button className="btn btn-ghost btn-sm" onClick={() => openEdit(v)}>Edit</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 

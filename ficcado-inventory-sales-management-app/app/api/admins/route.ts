@@ -1,32 +1,21 @@
 /**
  * app/api/admins/route.ts
  *
- * GET  /api/admins — list all admins from Admin Information Sheet
- * POST /api/admins — create a new admin (Setup Wizard Step 4 + Admin Control Centre)
+ * GET  /api/admins — list all admins from Admin Information Sheet (header-mapped)
+ * POST /api/admins — create a new admin (with header-mapped formatting)
  */
 
 import bcrypt from 'bcryptjs';
 import { requireAuth } from '@/lib/auth';
-import { readAllRows, appendRows } from '@/lib/google/moduleSheet';
+import { readAllRows, appendRows, updateRow } from '@/lib/google/moduleSheet';
+import { buildHeaderMap, getCellByHeader, formatRowFromHeaderMap } from '@/lib/google/headerUtils';
 import { validate, AdminSchema } from '@/lib/validation';
 import { logActivity } from '@/lib/activityLogger';
+import { MODULE_REGISTRY } from '@/lib/google/moduleRegistry';
 
 export const dynamic = 'force-dynamic';
 
-// Column indices (0-based) in Admin Information Sheet
-// S.No | Admin Name | Phone Number | Email ID | Notifications | Password Hash | Created At | Created By | Updated At | Updated By
-const COL = {
-  sno:           0,
-  adminName:     1,
-  phone:         2,
-  email:         3,
-  notifications: 4,
-  passwordHash:  5,
-  createdAt:     6,
-  createdBy:     7,
-  updatedAt:     8,
-  updatedBy:     9,
-};
+const EXPECTED_HEADERS = MODULE_REGISTRY.admin_info.headers;
 
 export interface AdminRecord {
   rowIndex:      number;
@@ -39,22 +28,6 @@ export interface AdminRecord {
   createdBy:     string;
   updatedAt:     string;
   updatedBy:     string;
-  // NOTE: passwordHash is intentionally NOT returned to the client
-}
-
-function rowToAdmin(row: string[], rowIndex: number): AdminRecord {
-  return {
-    rowIndex,
-    sno:           row[COL.sno]           ?? '',
-    adminName:     row[COL.adminName]     ?? '',
-    phone:         row[COL.phone]         ?? '',
-    email:         row[COL.email]         ?? '',
-    notifications: row[COL.notifications] ?? 'Enabled',
-    createdAt:     row[COL.createdAt]     ?? '',
-    createdBy:     row[COL.createdBy]     ?? '',
-    updatedAt:     row[COL.updatedAt]     ?? '',
-    updatedBy:     row[COL.updatedBy]     ?? '',
-  };
 }
 
 export async function GET() {
@@ -73,22 +46,44 @@ export async function GET() {
       readAllRows('sales').catch(() => []),
     ]);
 
+    if (adminRows.length === 0) {
+      await updateRow('admin_info', 1, EXPECTED_HEADERS).catch(() => {});
+      return Response.json({ admins: [] });
+    }
+
+    if (adminRows[0] && adminRows[0].length < EXPECTED_HEADERS.length) {
+      await updateRow('admin_info', 1, EXPECTED_HEADERS).catch(() => {});
+    }
+
+    const headerMap = buildHeaderMap(adminRows[0]);
+    const salesHeaderMap = buildHeaderMap(salesRows[0] ?? []);
     const salesList = salesRows.slice(1);
 
     const admins = adminRows
-      .slice(1) // skip header
+      .slice(1)
       .map((row, i) => {
-        const a = rowToAdmin(row, i + 2);
-        const normName = a.adminName.trim().toLowerCase();
+        const a: AdminRecord = {
+          rowIndex:  i + 2,
+          sno:       getCellByHeader(row, headerMap, 'S.No') || String(i + 1),
+          adminName: getCellByHeader(row, headerMap, 'Admin Name'),
+          phone:     getCellByHeader(row, headerMap, 'Phone Number'),
+          email:     getCellByHeader(row, headerMap, 'Email ID'),
+          notifications: getCellByHeader(row, headerMap, 'Notifications', 'Enabled'),
+          createdAt: getCellByHeader(row, headerMap, 'Created At'),
+          createdBy: getCellByHeader(row, headerMap, 'Created By'),
+          updatedAt: getCellByHeader(row, headerMap, 'Updated At'),
+          updatedBy: getCellByHeader(row, headerMap, 'Updated By'),
+        };
 
+        const normName = a.adminName.trim().toLowerCase();
         let salesCreated = 0;
         let salesClosed = 0;
         let revenueGenerated = 0;
 
         for (const sRow of salesList) {
-          const createdBy = (sRow[15] ?? '').trim().toLowerCase();
-          const saleClosedBy = (sRow[24] ?? '').trim().toLowerCase();
-          const amount = parseFloat((sRow[10] ?? '0').replace(/[^0-9.]/g, '')) || 0;
+          const createdBy = getCellByHeader(sRow, salesHeaderMap, 'Created By (Admin)').trim().toLowerCase();
+          const saleClosedBy = getCellByHeader(sRow, salesHeaderMap, 'Sale Closed By').trim().toLowerCase();
+          const amount = parseFloat(getCellByHeader(sRow, salesHeaderMap, 'Total Amount', '0').replace(/[^0-9.]/g, '')) || 0;
 
           if (createdBy === normName) {
             salesCreated += 1;
@@ -101,31 +96,21 @@ export async function GET() {
 
         return {
           ...a,
-          salesCreated,
-          salesClosed,
-          revenueGenerated,
+          metrics: {
+            salesCreated,
+            salesClosed,
+            revenueGenerated: Math.round(revenueGenerated),
+          },
         };
       })
-      .filter((a) => a.adminName); // filter empty rows
+      .filter((a) => a.adminName);
 
-    // Deduplicate by adminName to guarantee unique objects even if sheet contains duplicate rows
-    const seenNames = new Set<string>();
-    const uniqueAdmins = admins.filter((a) => {
-      const norm = a.adminName.trim().toLowerCase();
-      if (!norm || seenNames.has(norm)) return false;
-      seenNames.add(norm);
-      return true;
-    });
-
-    return Response.json({ admins: uniqueAdmins });
+    return Response.json({ admins });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[admins GET]', message);
     return Response.json(
-      {
-        error:
-          "Couldn't load the admin list. Check Sheet Configuration for 'admin_info'.",
-        detail: message,
-      },
+      { error: "Couldn't load admins directory.", detail: message },
       { status: 500 }
     );
   }
@@ -157,13 +142,17 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check for duplicate name or email with explicit detailed feedback
     const rows = await readAllRows('admin_info');
+    if (rows.length === 0 || (rows[0] && rows[0].length < EXPECTED_HEADERS.length)) {
+      await updateRow('admin_info', 1, EXPECTED_HEADERS).catch(() => {});
+    }
+
+    const headerMap = buildHeaderMap(rows[0] ?? []);
     const existingName = rows.slice(1).find(
-      (row) => (row[COL.adminName] ?? '').trim().toLowerCase() === adminName.trim().toLowerCase()
+      (row) => getCellByHeader(row, headerMap, 'Admin Name').trim().toLowerCase() === adminName.trim().toLowerCase()
     );
     const existingEmail = rows.slice(1).find(
-      (row) => (row[COL.email] ?? '').trim().toLowerCase() === emailId.trim().toLowerCase()
+      (row) => getCellByHeader(row, headerMap, 'Email ID').trim().toLowerCase() === emailId.trim().toLowerCase()
     );
 
     if (existingName) {
@@ -188,20 +177,23 @@ export async function POST(request: Request) {
 
     const now = new Date().toISOString();
     const passwordHash = await bcrypt.hash(password, 12);
-    const sno = String(rows.length); // next sequential number
+    const sno = String(Math.max(rows.length - 1, 0) + 1);
 
-    await appendRows('admin_info', [[
-      sno,
-      adminName,
-      phoneNumber,
-      emailId,
-      notifications ?? 'Enabled',
-      passwordHash,
-      now,
-      admin.name,
-      now,
-      admin.name,
-    ]]);
+    const adminObj = {
+      'S.No':          sno,
+      'Admin Name':    adminName,
+      'Phone Number':  phoneNumber,
+      'Email ID':      emailId,
+      'Notifications': notifications ?? 'Enabled',
+      'Password Hash': passwordHash,
+      'Created At':    now,
+      'Created By':    admin.name,
+      'Updated At':    now,
+      'Updated By':    admin.name,
+    };
+
+    const newRow = formatRowFromHeaderMap(adminObj, EXPECTED_HEADERS);
+    await appendRows('admin_info', [newRow]);
 
     await logActivity({
       adminName:  admin.name,
