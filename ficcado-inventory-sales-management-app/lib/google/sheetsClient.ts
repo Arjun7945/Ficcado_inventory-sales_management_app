@@ -4,14 +4,15 @@
  * Reads GOOGLE_SERVICE_ACCOUNT_KEY from env — never hardcoded.
  */
 import { google } from 'googleapis';
+import { getEnv } from '@/lib/env';
 
 /** Parse the service account JSON from the environment variable. */
 function getServiceAccountKey(): Record<string, any> {
-  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+  const raw = getEnv('GOOGLE_SERVICE_ACCOUNT_KEY');
   if (!raw) {
     throw new Error(
       'GOOGLE_SERVICE_ACCOUNT_KEY is not set. ' +
-        'Add it to .env.local (development) or Netlify environment variables (production).'
+        'Add it to .env.local (development) or Cloudflare environment variables (production).'
     );
   }
   try {

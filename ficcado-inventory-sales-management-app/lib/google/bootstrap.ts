@@ -15,8 +15,9 @@
  */
 
 import { getSheetsClient, getDriveClient } from './sheetsClient';
+import { getEnv } from '@/lib/env';
 
-export const BOOTSTRAP_SHEET_NAME = process.env.BOOTSTRAP_SHEET_NAME || process.env.NEXT_PUBLIC_BOOTSTRAP_SHEET_NAME || 'Ficcado-System-Config';
+export const BOOTSTRAP_SHEET_NAME = getEnv('BOOTSTRAP_SHEET_NAME') || getEnv('NEXT_PUBLIC_BOOTSTRAP_SHEET_NAME') || 'Ficcado-System-Config';
 export const APP_META_TAB = 'AppMeta';
 export const SHEET_CONFIG_TAB = 'SheetConfig';
 
@@ -121,8 +122,9 @@ export async function getBootstrapSpreadsheetId(): Promise<BootstrapResult> {
       }
 
       // 1. Check env var fallback if present
-      if (process.env.BOOTSTRAP_SPREADSHEET_ID) {
-        _cachedSpreadsheetId = process.env.BOOTSTRAP_SPREADSHEET_ID;
+      const envSpreadsheetId = getEnv('BOOTSTRAP_SPREADSHEET_ID');
+      if (envSpreadsheetId) {
+        _cachedSpreadsheetId = envSpreadsheetId;
         await initializeBootstrapTabs(_cachedSpreadsheetId);
         _tabsInitialized = true;
         return { spreadsheetId: _cachedSpreadsheetId, status: 'found' };
