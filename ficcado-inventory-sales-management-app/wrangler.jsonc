@@ -10,5 +10,10 @@
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
+  },
+  "vars": {
+    "BOOTSTRAP_SHEET_NAME": "SuperAdmin-Ficcado-CRM-Config",
+    "BOOTSTRAP_SPREADSHEET_ID": "1yapMfUcPUCTkKVdo2n1CBRmfkiL8Qz04t7KGYM8orf4",
+    "NEXT_PUBLIC_APP_URL": "https://ficcado-inventory-sales-management-app.arjunpslxi.workers.dev"
   }
 }
