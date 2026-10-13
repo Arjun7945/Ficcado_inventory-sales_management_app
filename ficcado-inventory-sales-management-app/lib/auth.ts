@@ -11,6 +11,7 @@
 import jwt from 'jsonwebtoken';
 import { cookies } from 'next/headers';
 import { readAllRows } from './google/moduleSheet';
+import { getEnv } from './env';
 
 export const SESSION_COOKIE = 'ficcado_session';
 export const SESSION_DURATION = '12h';
@@ -27,9 +28,10 @@ export interface SessionAdmin {
 
 /** Get the JWT signing secret. */
 function getJwtSecret(): string {
-  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+  const jwtSecret = getEnv('JWT_SECRET');
+  if (jwtSecret) return jwtSecret;
 
-  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY ?? '';
+  const raw = getEnv('GOOGLE_SERVICE_ACCOUNT_KEY') ?? '';
   const match = raw.match(/"private_key_id"\s*:\s*"([a-f0-9]+)"/);
   if (match) return `ficcado-jwt-${match[1]}`;
 
