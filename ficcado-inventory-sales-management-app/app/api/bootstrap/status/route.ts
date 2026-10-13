@@ -10,6 +10,7 @@
 
 import { getAppMetaMulti } from '@/lib/google/appMeta';
 import { getBootstrapSpreadsheetId } from '@/lib/google/bootstrap';
+import { getAllEnvKeys } from '@/lib/env';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +32,7 @@ export async function GET() {
       {
         error: message.includes('Service Account') ? message : "Couldn't connect to Google Sheets. Check that GOOGLE_SERVICE_ACCOUNT_KEY is set correctly.",
         detail: message,
+        availableKeys: getAllEnvKeys(),
       },
       { status: 500 }
     );
