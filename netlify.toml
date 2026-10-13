@@ -1,0 +1,7 @@
+[build]
+  base = "ficcado-inventory-sales-management-app"
+  command = "npm run build"
+  publish = "ficcado-inventory-sales-management-app/.next"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
